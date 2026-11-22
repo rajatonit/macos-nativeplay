@@ -1,0 +1,11 @@
+# Build output (swift build, Tools/make-app.sh)
+.build/
+build/
+
+# Local Python environment used while building chiaki-ng
+vendor/.venv/
+
+# Test clip (regenerate with: swift Tools/make-sample.swift samples/test-1080p.mov) and run logs
+samples/
+
+.DS_Store
