@@ -1,8 +1,13 @@
 #!/bin/zsh
 # Builds PS5Stream and wraps it in an app bundle (needed for controller haptics and microphone access).
 # Usage: Tools/make-app.sh   ->   build/PS5Stream.app
+#   VERSION=1.2.0 Tools/make-app.sh   sets the app's version (default: from the latest v* git tag)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+VERSION=${VERSION:-$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)}
+VERSION=${VERSION:-0.0.0}
+BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 
 swift build -c release
 APP=build/PS5Stream.app
@@ -12,7 +17,7 @@ cp .build/release/PS5Stream "$APP/Contents/MacOS/PS5Stream"
 # Keep the executable's UUID the same on every build so macOS remembers Local Network access.
 python3 Tools/pin-uuid.py "$APP/Contents/MacOS/PS5Stream" local.ps5stream.player
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -21,9 +26,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key><string>PS5Stream</string>
     <key>CFBundleExecutable</key><string>PS5Stream</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
-    <key>LSMinimumSystemVersion</key><string>15.0</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
+    <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>Your voice is sent to the PS5 for party and game chat when you unmute with M.</string>
@@ -46,4 +51,4 @@ codesign --force --sign "${IDENTITY:--}" --entitlements /dev/stdin "$APP" <<'ENT
 </dict>
 </plist>
 ENT
-echo "built $APP"
+echo "built $APP (version $VERSION, build $BUILD)"

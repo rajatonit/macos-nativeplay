@@ -8,7 +8,7 @@ let brew = "/opt/homebrew"
 
 let package = Package(
     name: "PS5Stream",
-    platforms: [.macOS("15.0")],
+    platforms: [.macOS("26.0")],
     targets: [
         .target(
             name: "CPS5",
@@ -33,9 +33,12 @@ let package = Package(
                     "\(chiaki)/build/third-party/libgf_complete.a",
                     "\(chiaki)/build/third-party/nanopb/libprotobuf-nanopb.a",
                     "\(chiaki)/build/third-party/curl/lib/libcurl.a",
-                    "-L\(brew)/opt/openssl@3/lib", "-lssl", "-lcrypto",
-                    "-L\(brew)/lib", "-lopus", "-ljson-c", "-lminiupnpc", "-levent", "-levent_pthreads",
-                    "-lz", "-lnghttp2",
+                    // Homebrew libraries are linked statically, so the app runs on Macs without Homebrew.
+                    "\(brew)/opt/openssl@3/lib/libssl.a", "\(brew)/opt/openssl@3/lib/libcrypto.a",
+                    "\(brew)/opt/opus/lib/libopus.a", "\(brew)/opt/json-c/lib/libjson-c.a",
+                    "\(brew)/opt/miniupnpc/lib/libminiupnpc.a", "\(brew)/opt/libevent/lib/libevent.a",
+                    "\(brew)/opt/libevent/lib/libevent_pthreads.a", "\(brew)/opt/libnghttp2/lib/libnghttp2.a",
+                    "-lz",
                 ]),
                 .linkedFramework("SystemConfiguration"),
                 .linkedFramework("CoreFoundation"),

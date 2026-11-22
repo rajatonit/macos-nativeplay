@@ -1,0 +1,91 @@
+# Builds the app on every push and pull request. Pushing a tag like v1.2.0 also publishes a GitHub
+# Release with the zipped app attached:
+#   git tag v1.2.0 && git push origin v1.2.0
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to create releases
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: macos-26  # Apple Silicon, macOS 26 SDK (Metal 4, VideoToolbox frame interpolation)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags and commit count for the version number
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            LAST=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)
+            VERSION="${LAST:-0.0.0}-dev.$(git rev-list --count HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      - name: Homebrew dependencies
+        run: brew install --quiet cmake protobuf opus json-c miniupnpc libevent openssl@3 libnghttp2 pkgconf
+
+      - name: Cache libchiaki build
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/chiaki-ng/build
+            vendor/.venv
+          key: chiaki-${{ runner.os }}-${{ hashFiles('.gitmodules', 'Tools/build-chiaki.sh') }}-${{ github.sha }}
+          restore-keys: chiaki-${{ runner.os }}-${{ hashFiles('.gitmodules', 'Tools/build-chiaki.sh') }}-
+
+      - name: Build libchiaki
+        run: Tools/build-chiaki.sh
+
+      - name: Build app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          Tools/make-app.sh
+          # Must not depend on Homebrew at run time.
+          if otool -L build/PS5Stream.app/Contents/MacOS/PS5Stream | grep -q homebrew; then
+            echo "::error::app links a Homebrew library dynamically"; exit 1
+          fi
+          ditto -c -k --keepParent build/PS5Stream.app "macos-nativeplay-${VERSION}.zip"
+          shasum -a 256 "macos-nativeplay-${VERSION}.zip" | tee "macos-nativeplay-${VERSION}.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-nativeplay-${{ steps.version.outputs.version }}
+          path: macos-nativeplay-*.zip*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          1. Download \`macos-nativeplay-${VERSION}.zip\` below and unzip it.
+          2. Move \`PS5Stream.app\` to Applications.
+          3. The app isn't notarised, so clear the download flag once:
+             \`xattr -dr com.apple.quarantine /Applications/PS5Stream.app\`
+          4. Pair your PS5 in [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng/releases) first, then open the app.
+
+          Needs an Apple Silicon Mac with macOS 26 or later. See the [README](https://github.com/${GITHUB_REPOSITORY}#requirements) for which Macs run which modes.
+
+          EOF
+          gh release create "$GITHUB_REF_NAME" macos-nativeplay-*.zip macos-nativeplay-*.zip.sha256 \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md --generate-notes

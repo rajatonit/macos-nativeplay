@@ -151,11 +151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let file = options.file {
             fileSource = FileSource(url: URL(fileURLWithPath: file), view: view)
-        } else if let host = options.host ?? UserDefaults.standard.string(forKey: "host") {
+        } else if let host = options.host ?? UserDefaults.standard.string(forKey: "host") ?? askHost() {
             UserDefaults.standard.set(host, forKey: "host")  // so the app can be opened from Finder next time
             startStream(host: host, view: view)
         } else {
-            fail("usage: PS5Stream --host <PS5 address> [--sdr] [--bitrate kbps]  |  --file <video>")
+            NSApp.terminate(nil)
         }
 
         if let s = options.seconds {
@@ -372,7 +372,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func fail(_ message: String) -> Never {
         print(message)
+        let alert = NSAlert()
+        alert.messageText = "PS5Stream can't start"
+        alert.informativeText = message
+        alert.runModal()
         exit(1)
+    }
+
+    /// First launch without --host: ask for the console's address (remembered afterwards).
+    private func askHost() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "PS5 address"
+        alert.informativeText = "Enter your PS5's IP address. On the PS5: Settings > Network > Connection Status > View Connection Status, then IPv4 Address."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.placeholderString = "192.168.1.20"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Quit")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let host = field.stringValue.trimmingCharacters(in: .whitespaces)
+        return host.isEmpty ? nil : host
     }
 
     func applicationWillTerminate(_ notification: Notification) {
