@@ -17,6 +17,7 @@ final class SettingsPanel: NSVisualEffectView {
     private let interpolationNote = NSTextField(labelWithString: "Only runs in Max")
     private let boost = NSButton(checkboxWithTitle: "HDR highlight boost", target: nil, action: nil)
     private let cleanup = NSButton(checkboxWithTitle: "Artifact clean-up", target: nil, action: nil)
+    private let look = NSButton(checkboxWithTitle: "Enhanced look (depth + colour)", target: nil, action: nil)
     private let mic = NSButton(checkboxWithTitle: "Microphone", target: nil, action: nil)
     private let fps = NSButton(checkboxWithTitle: "FPS counter on screen", target: nil, action: nil)
     private let compare = NSButton(checkboxWithTitle: "Split screen: standard | enhanced", target: nil, action: nil)
@@ -54,7 +55,7 @@ final class SettingsPanel: NSVisualEffectView {
         upscaler.target = self; upscaler.action = #selector(upscalerChanged)
         record.bezelStyle = .rounded
         record.controlSize = .small
-        for b in [interpolation, boost, cleanup, mic, compare, record, fps] { b.target = self; b.action = #selector(toggled(_:)) }
+        for b in [interpolation, boost, cleanup, look, mic, compare, record, fps] { b.target = self; b.action = #selector(toggled(_:)) }
 
         func row(_ label: String, _ views: NSView...) -> NSView {
             let l = NSTextField(labelWithString: label)
@@ -74,7 +75,7 @@ final class SettingsPanel: NSVisualEffectView {
             row("Power", power, powerNote),
             row("Upscaler", upscaler),
             row("Motion", interpolation, interpolationNote),
-            row("Picture", boost, cleanup, compare, fps),
+            row("Picture", look, boost, cleanup, compare, fps),
             row("Audio", mic),
             row("Capture", record, recordNote),
         ])
@@ -110,6 +111,7 @@ final class SettingsPanel: NSVisualEffectView {
         interpolationNote.isHidden = v.power == .max
         boost.state = v.highlightBoost ? .on : .off
         cleanup.state = v.cleanup ? .on : .off
+        look.state = v.enhanceLook ? .on : .off
         compare.state = v.compare ? .on : .off
         fps.state = v.showFPS ? .on : .off
         record.title = v.isRecording ? "Stop recording" : "Start recording"
@@ -137,6 +139,7 @@ final class SettingsPanel: NSVisualEffectView {
         case interpolation: v.setInterpolation(b.state == .on)
         case boost: v.setHighlightBoost(b.state == .on)
         case cleanup: v.setCleanup(b.state == .on)
+        case look: v.setEnhancedLook(b.state == .on)
         case mic: toggleMic?()
         case compare: v.setCompare(b.state == .on)
         case fps: v.setShowFPS(b.state == .on)

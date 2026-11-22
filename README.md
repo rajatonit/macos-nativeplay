@@ -114,6 +114,7 @@ Press **S** (or **⌘,**, or choose **Show/Hide Settings** from the menu bar) to
 | **120 fps frame generation** | Apple's machine-learning frame interpolation fills in frames up to 120 fps. The app works out the game's real frame rate: a 60 fps game gets 1 generated frame between each pair, and a 30 fps game (which the PS5 streams at 60 by sending each picture twice) gets its repeats dropped and 3 generated frames between each pair, so motion is smooth instead of judder-stepping. Only runs in Max. Adds about one game frame of input lag (more at 30 fps). This is interpolation of the video, not in-game frame generation like DLSS or XeSS, which need the game's own motion data. |
 | **HDR highlight boost** | The PS5 masters highlights for around 400 nits; this stretches everything above 200 nits up to the XDR panel's 1000. Mid-tones and skin don't change. |
 | **FPS counter** | Shows frames on screen, the game's real frame rate, how many frames were generated, the upscaler and GPU time in the top-right corner of the picture. |
+| **Enhanced look** | Off by default. A grade on the upscaled picture: more local contrast (depth in clouds, buildings and faces), richer muted colours, a gentle contrast curve and a faint cinematic tint. It's a colour grade of the video, not re-rendering, so it can't add detail or lighting the game didn't draw. Under 0.5 ms per frame. Try it with split screen (`C`) to see the difference. |
 | **Artifact clean-up** | Smooths the banding and blocky steps that compression leaves in sky, fog and dark areas, before upscaling. Edges and texture are left as decoded. About 0.2 ms per frame. |
 | **Microphone** | Sends the Mac's microphone to the PS5 for party and game chat. Starts muted. |
 
@@ -129,6 +130,7 @@ All settings except the microphone are remembered between launches.
 | `I` | Toggle 120 fps frame generation |
 | `H` | Toggle HDR highlight boost |
 | `D` | Toggle artifact clean-up |
+| `L` | Toggle the enhanced look |
 | `C` | Split screen: standard picture on the left, enhanced on the right |
 | `F` | On-screen fps counter |
 | `R` | Start or stop recording the picture to `~/Movies` |
@@ -164,6 +166,7 @@ Pass options with `open -a PS5Stream --args <options>`, or run `/Applications/PS
 | `--verbose` | Print chiaki's log and pipeline counters |
 | `--file clip.mov` | Play a local video through the renderer, without a console |
 | `--compare` | Start in split-screen compare mode |
+| `--look`, `--no-look` | Start with the enhanced look on or off |
 | `--fps` | Start with the on-screen fps counter |
 | `--record` | Start recording as soon as the picture appears |
 

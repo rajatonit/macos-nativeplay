@@ -99,6 +99,9 @@ final class RenderView: NSView {
     /// boost; right half is the full pipeline. For demos and for judging the settings.
     private(set) var compare = false
     private var compareTexture: MTLTexture?
+    /// Clarity, contrast, vibrance and a light grade on the upscaled frame (L toggles, remembered).
+    private(set) var enhanceLook = UserDefaults.standard.bool(forKey: "enhancedLook")
+    private lazy var look = EnhancedLook(device: device)
     private var splitCompose: MTLComputePipelineState!
     /// Live fps readout drawn into the frame (F toggles, remembered).
     private(set) var showFPS = UserDefaults.standard.bool(forKey: "fpsOverlay")
@@ -292,6 +295,12 @@ final class RenderView: NSView {
         print("render: fps overlay \(on ? "on" : "off")")
         onSettingsChanged?()
     }
+    func setEnhancedLook(_ on: Bool) {
+        enhanceLook = on
+        UserDefaults.standard.set(on, forKey: "enhancedLook")
+        print("render: enhanced look \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
     func setHighlightBoost(_ on: Bool) {
         highlightBoost = on
         print("render: highlight boost \(on ? "on" : "off")")
@@ -314,6 +323,7 @@ final class RenderView: NSView {
         case "s" where !cmd: onToggleSettings?()
         case "c" where !cmd: setCompare(!compare)
         case "f" where !cmd: setShowFPS(!showFPS)
+        case "l" where !cmd: setEnhancedLook(!enhanceLook)
         case "r" where !cmd: toggleRecording()
         case "q" where cmd: NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
@@ -563,6 +573,10 @@ final class RenderView: NSView {
         } else {
             lanczos.encode(commandBuffer: cb, sourceTexture: rgb, destinationTexture: out)
         }
+        // Grade after scaling (so the upscaler sees the original picture) and before the compare split
+        // (so its left half stays standard).
+        let grading = enhanceLook && look != nil
+        if grading { look?.encode(cb, frame: out, hdr: info.hdr) }
         if compare {
             if compareTexture?.width != outW || compareTexture?.height != outH { compareTexture = makeTexture(outW, outH) }
             if let cmp = compareTexture, let e2 = cb.makeRenderCommandEncoder(descriptor: {
@@ -609,7 +623,7 @@ final class RenderView: NSView {
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (%@ interp %.1f ms) ",
                                                             cadence.halfRate ? "30->120," : "60->120,", interpolator?.lastMs ?? 0) : "")
-            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "")
+            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "") + (grading ? " look" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
             + (compare ? " | compare" : "") + (isRecording ? " | REC" : "") + (showFPS ? " | fps overlay" : "")
         // With frame generation, HQ upscales the PS5's frames and fast the in-between ones; label it HQ.
