@@ -38,6 +38,7 @@ Options:
 
 Keys:
 
+- `S` (or Cmd-, or the menu bar) shows and hides a settings panel over the video, with every option below as a button or checkbox. In full screen the pointer stays visible while the panel is open. Clicking a control sends keys back to the game straight away.
 - `U` cycles the upscaler: Neural HQ (default), Neural fast, MetalFX, bilinear. The neural modes run the FSRCNNX network from chiaki-ng on the GPU.
 - The mouse pointer is hidden over the video in full screen.
 - `E` cycles the power mode: Max (120 fps + Neural HQ; frame interpolation is the biggest cost), Balanced (Neural HQ at 60 fps, ~5.5 ms of GPU work per frame, default), Cool (Neural fast at 60 fps, ~3 ms). Remembered. The app steps down by itself when macOS reports the Mac is hot, and uses Cool on battery or in Low Power Mode; plugging the charger back in restores your choice.

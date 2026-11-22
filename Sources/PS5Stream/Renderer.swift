@@ -185,13 +185,18 @@ final class RenderView: NSView {
 
     private var isFullScreen: Bool { window?.styleMask.contains(.fullScreen) ?? false }
 
+    /// While the settings panel is open the pointer stays visible, so it can be used in full screen.
+    var keepsCursor = false {
+        didSet { window?.invalidateCursorRects(for: self) }
+    }
+
     override func resetCursorRects() {
-        if isFullScreen { addCursorRect(bounds, cursor: Self.blankCursor) }
+        if isFullScreen && !keepsCursor { addCursorRect(bounds, cursor: Self.blankCursor) }
     }
 
     private func fullScreenChanged() {
         window?.invalidateCursorRects(for: self)
-        if isFullScreen { NSCursor.setHiddenUntilMouseMoves(true) }  // takes effect without waiting for a move
+        if isFullScreen && !keepsCursor { NSCursor.setHiddenUntilMouseMoves(true) }  // takes effect without waiting for a move
     }
 
     override func viewDidMoveToWindow() {
@@ -207,29 +212,65 @@ final class RenderView: NSView {
         link?.add(to: .main, forMode: .common)
     }
 
+    // MARK: - Settings (keys and the settings panel both go through these)
+
+    /// Called after any setting changes, so the settings panel can show it.
+    var onSettingsChanged: (() -> Void)?
+    /// S (or Cmd-,) shows and hides the settings panel.
+    var onToggleSettings: (() -> Void)?
+
+    func setUpscale(_ u: Upscale) {
+        upscale = u
+        print("render: upscaling with \(upscale.rawValue)")
+        onSettingsChanged?()
+    }
+    func setInterpolation(_ on: Bool) {
+        guard FrameInterpolator.isSupported else { print("render: frame interpolation needs macOS 26"); return }
+        interpolationWanted = on
+        UserDefaults.standard.set(on, forKey: "interpolate")
+        print("render: 120 fps interpolation \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
+    var interpolationEnabled: Bool { interpolationWanted }
+    func setPower(_ p: Power) {
+        powerChoice = p
+        UserDefaults.standard.set(p.rawValue, forKey: "power")
+        print("render: power mode \(p.name)" + (power != p ? " (limited to \(power.name) by \(powerLimitReason))" : ""))
+        onSettingsChanged?()
+    }
+    var chosenPower: Power { powerChoice }
+    /// Why the power mode is below the chosen one (empty when it isn't).
+    var powerLimitReason: String {
+        if power == powerChoice { return "" }
+        return PowerSource.onBattery ? "battery" : ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power Mode" : "heat"
+    }
+    func setCleanup(_ on: Bool) {
+        cleanup = on
+        UserDefaults.standard.set(on, forKey: "cleanup")
+        print("render: artifact clean-up \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
+    func setHighlightBoost(_ on: Bool) {
+        highlightBoost = on
+        print("render: highlight boost \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.isARepeat { return }
+        let cmd = event.modifierFlags.contains(.command)
         switch event.charactersIgnoringModifiers {
-        case "u":
+        case "u" where !cmd:
             let all = Upscale.allCases
-            upscale = all[(all.firstIndex(of: upscale)! + 1) % all.count]
-            print("render: upscaling with \(upscale.rawValue)")
-        case "i":
-            guard FrameInterpolator.isSupported else { print("render: frame interpolation needs macOS 26"); break }
-            interpolationWanted.toggle()
-            UserDefaults.standard.set(interpolationWanted, forKey: "interpolate")
-            print("render: 120 fps interpolation \(interpolationWanted ? "on" : "off")")
-        case "e":
+            setUpscale(all[(all.firstIndex(of: upscale)! + 1) % all.count])
+        case "i" where !cmd: setInterpolation(!interpolationWanted)
+        case "e" where !cmd:
             let all = Power.allCases
-            powerChoice = all[(all.firstIndex(of: powerChoice)! + 1) % all.count]
-            UserDefaults.standard.set(powerChoice.rawValue, forKey: "power")
-            print("render: power mode \(powerChoice.name)" + (power != powerChoice ? " (limited to \(power.name) by battery, heat or Low Power Mode)" : ""))
-        case "d":
-            cleanup.toggle()
-            UserDefaults.standard.set(cleanup, forKey: "cleanup")
-            print("render: artifact clean-up \(cleanup ? "on" : "off")")
-        case "h": highlightBoost.toggle(); print("render: highlight boost \(highlightBoost ? "on" : "off")")
-        case "q" where event.modifierFlags.contains(.command): NSApp.terminate(nil)
+            setPower(all[(all.firstIndex(of: powerChoice)! + 1) % all.count])
+        case "d" where !cmd: setCleanup(!cleanup)
+        case "h" where !cmd: setHighlightBoost(!highlightBoost)
+        case "s" where !cmd: onToggleSettings?()
+        case "q" where cmd: NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
         }
     }
@@ -483,7 +524,8 @@ final class RenderView: NSView {
         let p = power
         if p != loggedPower {
             loggedPower = p
-            print("render: power \(p.name)" + (p != powerChoice ? " (stepped down from \(powerChoice.name): \(PowerSource.onBattery ? "on battery" : ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power Mode" : "Mac is hot"))" : ""))
+            print("render: power \(p.name)" + (p != powerChoice ? " (stepped down from \(powerChoice.name): \(powerLimitReason))" : ""))
+            onSettingsChanged?()
         }
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")

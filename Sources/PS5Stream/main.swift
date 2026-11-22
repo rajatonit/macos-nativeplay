@@ -3,7 +3,7 @@
 //   PS5Stream --host 192.168.1.20 [--sdr] [--bitrate 30000] [--resolution 1080|1440|2160] [--on-quit ask|rest|keep] [--verbose]
 //   PS5Stream --file clip.mov          (offline test of the render pipeline)
 //
-// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, D toggles artifact clean-up, M toggles the microphone, Cmd-Q quits, Cmd-Ctrl-F full screen.
+// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, D toggles artifact clean-up, M toggles the microphone, S or Cmd-, shows the settings panel, Cmd-Q quits, Cmd-Ctrl-F full screen.
 // Without a controller: arrows = d-pad, Return = cross, Esc = circle, P = PS, O = options, T = touchpad.
 
 import AVFoundation
@@ -103,14 +103,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(options: Options) { self.options = options }
 
+    private var videoView: RenderView? { (window.contentView as? VideoContainer)?.video }
+    private var settingsPanel: SettingsPanel? { (window.contentView as? VideoContainer)?.settings }
+
+    /// A small menu bar: Settings (Cmd-,), full screen and quit, so they're findable without the keys.
+    private func installMenu(settings: VideoContainer) {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        let s = NSMenuItem(title: "Show/Hide Settings", action: #selector(VideoContainer.toggleSettings), keyEquivalent: ",")
+        s.target = settings
+        appMenu.addItem(s)
+        appMenu.addItem(.separator())
+        appMenu.addItem(NSMenuItem(title: "Quit PS5Stream", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+        let viewItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        let fs = NSMenuItem(title: "Toggle Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fs.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(fs)
+        viewItem.submenu = viewMenu
+        main.addItem(viewItem)
+        NSApp.mainMenu = main
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let view = RenderView(frame: .zero)
+        let container = VideoContainer(video: view)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1512, height: 850),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered, defer: false)
         window.title = "PS5Stream"
-        window.contentView = view
+        window.contentView = container
+        installMenu(settings: container)
         window.collectionBehavior = [.fullScreenPrimary]
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -172,12 +199,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.onKey = { [weak self] code, down in
             guard let self else { return }
             if code == 46 {  // M
-                if down { self.client.toggleMic() }
+                if down { self.client.toggleMic(); self.settingsPanel?.refresh() }
                 return
             }
             self.input.key(code, down: down)
         }
         input.onChange = { [weak self] state in self?.client.send(state) }
+        settingsPanel?.micLive = { [weak self] in self.map { !$0.client.micMuted } }
+        settingsPanel?.toggleMic = { [weak self] in self?.client.toggleMic() }
         client.feedback.onPSButton = { [weak self] down in
             if down { print("input: PS button") }
             self?.input.psButton(down)
@@ -260,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.window.initialFirstResponder = field
         alert.beginSheetModal(for: window) { [weak self] response in
             self?.client.submitKeyboard(response == .alertFirstButtonReturn ? field.stringValue : nil)
-            self?.window.makeFirstResponder(self?.window.contentView)
+            self?.window.makeFirstResponder(self?.videoView)
         }
     }
 
@@ -277,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.window.initialFirstResponder = field
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
-            self.window.makeFirstResponder(self.window.contentView)
+            self.window.makeFirstResponder(self.videoView)
             if response == .alertFirstButtonReturn {
                 self.client.sendLoginPin(field.stringValue)
             } else {
