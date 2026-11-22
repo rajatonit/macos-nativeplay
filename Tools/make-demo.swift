@@ -1,6 +1,7 @@
 // Turns a PS5Stream recording (R key, saved in ~/Movies) into a short captioned 1080p clip for sharing.
 //
 //   swift Tools/make-demo.swift "<recording>.mp4" [--start 12] [--duration 20] [--out demo.mp4] [--title "..."]
+//                               [--no-title] [--no-link] [--captions]
 //
 // - Scales to 1920x1080 H.264 (plays everywhere), keeping the recording's frame rate.
 // - If the recording was made in compare mode (C), labels the two halves.
@@ -25,7 +26,8 @@ let title = option("--title") ?? "PS5 Remote Play on a Mac: neural upscaling, na
 let link = option("--link") ?? "github.com/rajatonit/macos-nativeplay"
 let outArg = option("--out")
 let forceCaptions = args.contains("--captions")
-args.removeAll { $0 == "--captions" }
+let noTitle = args.contains("--no-title"), noLink = args.contains("--no-link")
+args.removeAll { ["--captions", "--no-title", "--no-link"].contains($0) }
 guard let inPath = args.first else {
     print("usage: swift Tools/make-demo.swift <recording.mp4> [--start s] [--duration s] [--out file.mp4] [--title text]")
     exit(1)
@@ -137,9 +139,11 @@ Task {
         }
 
         // Title (first 3 s) and link (last 3 s).
-        show(pill(title, size: 44, weight: .semibold, x: W / 2, y: H / 2 - 30, align: .center), 0, min(3, duration))
-        show(pill("Free & open source  ·  \(link)", size: 44, weight: .semibold, x: W / 2, y: H / 2 - 30, align: .center),
-             max(duration - 3, 0), duration)
+        if !noTitle { show(pill(title, size: 44, weight: .semibold, x: W / 2, y: H / 2 - 30, align: .center), 0, min(3, duration)) }
+        if !noLink {
+            show(pill("Free & open source  ·  \(link)", size: 44, weight: .semibold, x: W / 2, y: H / 2 - 30, align: .center),
+                 max(duration - 3, 0), duration)
+        }
 
         // Compare labels.
         if stats.contains(where: \.compare) {
