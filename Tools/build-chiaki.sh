@@ -28,6 +28,10 @@ cmake -S vendor/chiaki-ng -B vendor/chiaki-ng/build -DCMAKE_BUILD_TYPE=Release \
     -DCHIAKI_ENABLE_SETSU=OFF -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF -DCHIAKI_ENABLE_SPEEX=OFF \
     -DCHIAKI_ENABLE_RUDP=OFF -DCHIAKI_ENABLE_FFMPEG_DECODER=OFF -DCHIAKI_ENABLE_PI_DECODER=OFF \
     -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" \
+    `# chiaki's bundled curl only talks HTTP(S)/WebSocket to PSN; don't let it pick up optional` \
+    `# libraries that happen to be installed (CI runners have them), which the app doesn't link.` \
+    -DCURL_USE_LIBPSL=OFF -DUSE_LIBIDN2=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBSSH=OFF \
+    -DCURL_ZSTD=OFF -DCURL_BROTLI=OFF -DCURL_USE_GSSAPI=OFF -DUSE_LIBRTMP=OFF -DENABLE_ARES=OFF \
     -DPYTHON_EXECUTABLE="$PWD/vendor/.venv/bin/python"
 cmake --build vendor/chiaki-ng/build -j "$(sysctl -n hw.ncpu)"
 echo "built vendor/chiaki-ng/build/lib/libchiaki.a"

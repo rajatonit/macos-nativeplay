@@ -63,7 +63,7 @@ jobs:
           set -e
           if [[ $status -ne 0 ]]; then
             # Surface compiler errors as annotations, so they're visible without opening the log.
-            grep -E "error:|Error:|No such file" build.log | sort -u | head -20 | while IFS= read -r l; do echo "::error::${l}"; done
+            grep -E "error:|Error:|No such file|Undefined symbols|^ +\"_|library not found" build.log | sort -u | head -20 | while IFS= read -r l; do echo "::error::${l}"; done
             exit $status
           fi
           # Must not depend on Homebrew at run time.
