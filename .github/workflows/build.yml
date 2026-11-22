@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # tags and commit count for the version number
+          # chiaki-ng is checked out here, before the cache below restores its build folder into it
+          submodules: true
 
       - name: Version
         id: version
