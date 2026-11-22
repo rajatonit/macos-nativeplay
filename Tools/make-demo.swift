@@ -54,7 +54,13 @@ func caption(_ line: String) -> (String, Bool)? {
     if seg.contains(" clean") { bits.append("artifact clean-up") }
     if seg.contains("boost") { bits.append("HDR boost") }
     bits.append(interp ? "\(shown) on screen (frame generation)" : "\(shown) on screen")
-    if !gpu.isEmpty { bits.append(gpu.replacingOccurrences(of: "GPU ", with: "") + " of GPU work per frame") }
+    let ms = gpu.replacingOccurrences(of: "GPU ", with: "")
+    // Frame generation runs in VideoToolbox, outside the render time, so report it separately.
+    if let interpMs = find(#"interp [0-9.]+ ms"#)?.replacingOccurrences(of: "interp ", with: ""), !ms.isEmpty {
+        bits.append("\(ms) upscaling + \(interpMs) frame generation")
+    } else if !ms.isEmpty {
+        bits.append("\(ms) of GPU work per frame")
+    }
     return (bits.joined(separator: "  ·  "), line.contains("| compare"))
 }
 let statsURL = inURL.deletingPathExtension().appendingPathExtension("stats.txt")
@@ -146,7 +152,8 @@ Task {
         for (i, s) in inClip.enumerated() {
             let t0 = (i == 0 ? 0 : s.t - start)
             let t1 = i + 1 < inClip.count ? inClip[i + 1].t - start : duration
-            show(pill(s.text, size: 26, weight: .medium, x: W / 2, y: 30, align: .center), t0, t1, fade: 0)
+            // Bottom right: games usually put the minimap bottom left.
+            show(pill(s.text, size: 24, weight: .medium, x: W - 30, y: 30, align: .right), t0, t1, fade: 0)
         }
 
         let vc = AVMutableVideoComposition()

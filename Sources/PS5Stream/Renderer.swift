@@ -645,6 +645,8 @@ final class RenderView: NSView {
         var hud = "\(shown) fps"
         if interpolating && genPerSec > 0 { hud += "  ·  \(max(shown - genPerSec, 0)) PS5 + \(genPerSec) generated" }
         hud += String(format: "  ·  %@  ·  %.1f ms GPU", scaler, gpuMsSum / Double(presented))
+        // Frame generation runs in VideoToolbox, outside the render time above.
+        if interpolating, let ip = interpolator { hud += String(format: " + %.1f ms frame gen", ip.lastMs) }
         fpsOverlay?.update(hud, pixelSize: CGFloat(out.1) * 0.022)
         if let recorder, recorder.isRecording { recorder.note(line) }
         print(line)
