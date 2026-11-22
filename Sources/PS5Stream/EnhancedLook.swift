@@ -4,6 +4,7 @@
 //     giving the local brightness around each pixel; detail relative to that is amplified. This adds
 //     depth to mid-size shapes (buildings, faces, clouds) without sharpening fine compression noise.
 //   - Contrast: a gentle global S around mid-grey, with a soft roll-off so highlights don't clip.
+//     Neither this nor clarity is allowed to darken deep shadows, so their texture survives.
 //   - Vibrance: more saturation for muted colours, less for already saturated ones (so skies and
 //     foliage gain colour, but neon and skin don't go garish).
 //   - Split tone: a faint cool cast in shadows and warm cast in highlights.
@@ -74,6 +75,9 @@ kernel void lookApply(texture2d<float, access::read_write> frame [[texture(0)]],
     // Global contrast around mid-grey (18 nits SDR, 20 nits HDR) in log space.
     float mid = log2(hdr ? 20.0 : 18.0);
     nl = mid + (nl - mid) * (1.0 + p.contrast);
+    // Never push shadows darker: below about 1/8 of mid-grey nothing gets darker, fading in to the full
+    // effect just above mid-grey. Otherwise shadowed asphalt and interiors go black and lose texture.
+    if (nl < ly) nl = ly + (nl - ly) * smoothstep(mid - 3.0, mid + 0.5, ly);
     float ny = max(exp2(nl) - 0.05, 0.0);
 
     // Soft roll-off into the ceiling: the panel's 1000 nits in HDR (or brighter source), white in SDR.
