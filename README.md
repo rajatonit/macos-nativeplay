@@ -81,6 +81,7 @@ You only do this once.
 
 1. Install chiaki-ng from its [releases page](https://github.com/chiaki-ng/chiaki-ng/releases).
 2. Open chiaki-ng. Your PS5 should appear; if it doesn't, add it with its IP address.
+   **Write down the IP address chiaki-ng shows under your PS5's name.** PS5Stream asks for it on first launch.
 3. Choose to register the console. chiaki-ng asks for your PSN account ID (it can look it up for you when you sign in to PSN) and a PIN.
 4. On the PS5, go to **Settings > System > Remote Play > Link Device** to get the 8-digit PIN, and enter it in chiaki-ng.
 5. Optional: if your PS5 profile has a login passcode, save it in chiaki-ng's console settings, so PS5Stream can sign in without asking.
@@ -89,7 +90,7 @@ You can close chiaki-ng after pairing. It doesn't need to run alongside PS5Strea
 
 ## First launch
 
-1. Open **PS5Stream** and enter the PS5's IP address when asked. It's remembered for next time.
+1. Open **PS5Stream** and enter the PS5's IP address when asked: the one chiaki-ng shows for your console (or the one from the PS5's network settings). It's remembered for next time.
 2. When macOS asks to **find devices on your local network**, click **Allow**. Without this the app can't reach the PS5.
 3. If the PS5 is in rest mode, it wakes up. If your profile has a passcode and chiaki-ng doesn't have it saved, the app asks for it.
 4. The game appears. Press **S** to open the settings panel.
@@ -97,7 +98,7 @@ You can close chiaki-ng after pairing. It doesn't need to run alongside PS5Strea
 To connect to a different PS5 address later, run:
 
 ```bash
-open -a PS5Stream --args --host 192.168.1.30
+open -a PS5Stream --args --host 10.0.0.42
 ```
 
 ## Using it
