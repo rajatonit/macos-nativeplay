@@ -5,7 +5,8 @@
 // - Scales to 1920x1080 H.264 (plays everywhere), keeping the recording's frame rate.
 // - If the recording was made in compare mode (C), labels the two halves.
 // - Shows the real per-second stats from the recording's .stats.txt (mode, frames shown, GPU time),
-//   so the caption numbers are measured, not typed in.
+//   so the caption numbers are measured, not typed in. Skipped when the recording already has the
+//   app's on-screen fps counter (F) burned in, unless --captions is given.
 // - Title for the first 3 seconds, link to the project for the last 3.
 
 import AVFoundation
@@ -23,6 +24,8 @@ let wanted = option("--duration").flatMap(Double.init)
 let title = option("--title") ?? "PS5 Remote Play on a Mac: neural upscaling, native app"
 let link = option("--link") ?? "github.com/rajatonit/macos-nativeplay"
 let outArg = option("--out")
+let forceCaptions = args.contains("--captions")
+args.removeAll { $0 == "--captions" }
 guard let inPath = args.first else {
     print("usage: swift Tools/make-demo.swift <recording.mp4> [--start s] [--duration s] [--out file.mp4] [--title text]")
     exit(1)
@@ -31,7 +34,7 @@ let inURL = URL(fileURLWithPath: inPath)
 let outURL = URL(fileURLWithPath: outArg ?? inURL.deletingPathExtension().path + " demo.mp4")
 
 // Stats: "<seconds>\t<window title line>" per second.
-struct Stat { var t: Double; var text: String; var compare: Bool }
+struct Stat { var t: Double; var text: String; var compare: Bool; var overlay: Bool }
 func caption(_ line: String) -> (String, Bool)? {
     let parts = line.components(separatedBy: " | ")
     guard parts.count > 3 else { return nil }
@@ -58,7 +61,7 @@ let statsURL = inURL.deletingPathExtension().appendingPathExtension("stats.txt")
 let stats: [Stat] = ((try? String(contentsOf: statsURL, encoding: .utf8)) ?? "").split(separator: "\n").compactMap {
     let f = $0.split(separator: "\t", maxSplits: 1)
     guard f.count == 2, let t = Double(f[0]), let (c, cmp) = caption(String(f[1])) else { return nil }
-    return Stat(t: t, text: c, compare: cmp)
+    return Stat(t: t, text: c, compare: cmp, overlay: f[1].contains("| fps overlay"))
 }
 if stats.isEmpty { print("note: no stats file next to the recording; captions will only have the title and link") }
 
@@ -139,7 +142,7 @@ Task {
         }
 
         // Live stats, one caption per measured second.
-        let inClip = stats.filter { $0.t >= start - 1 && $0.t <= start + duration }
+        let inClip = stats.filter { $0.t >= start - 1 && $0.t <= start + duration && (forceCaptions || !$0.overlay) }
         for (i, s) in inClip.enumerated() {
             let t0 = (i == 0 ? 0 : s.t - start)
             let t1 = i + 1 < inClip.count ? inClip[i + 1].t - start : duration

@@ -100,6 +100,10 @@ final class RenderView: NSView {
     private(set) var compare = false
     private var compareTexture: MTLTexture?
     private var splitCompose: MTLComputePipelineState!
+    /// Live fps readout drawn into the frame (F toggles, remembered).
+    private(set) var showFPS = UserDefaults.standard.bool(forKey: "fpsOverlay")
+    private lazy var fpsOverlay = FPSOverlay(device: device)
+    private var lastGenerated = 0
     /// Records the window's picture to ~/Movies (R toggles).
     private(set) lazy var recorder = Recorder(device: device)
 
@@ -280,6 +284,12 @@ final class RenderView: NSView {
         else { print("record: nothing on screen yet") }
         onSettingsChanged?()
     }
+    func setShowFPS(_ on: Bool) {
+        showFPS = on
+        UserDefaults.standard.set(on, forKey: "fpsOverlay")
+        print("render: fps overlay \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
     func setHighlightBoost(_ on: Bool) {
         highlightBoost = on
         print("render: highlight boost \(on ? "on" : "off")")
@@ -301,6 +311,7 @@ final class RenderView: NSView {
         case "h" where !cmd: setHighlightBoost(!highlightBoost)
         case "s" where !cmd: onToggleSettings?()
         case "c" where !cmd: setCompare(!compare)
+        case "f" where !cmd: setShowFPS(!showFPS)
         case "r" where !cmd: toggleRecording()
         case "q" where cmd: NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
@@ -578,6 +589,7 @@ final class RenderView: NSView {
                 }
             }
         }
+        if showFPS { fpsOverlay?.encode(cb, frame: out, hdr: info.hdr) }
         if let recorder, recorder.isRecording { recorder.capture(cb, frame: out, hdr: info.hdr) }
         if let blit = cb.makeBlitCommandEncoder() {
             blit.copy(from: out, to: drawable.texture)
@@ -594,18 +606,20 @@ final class RenderView: NSView {
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")
             + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
-            + (compare ? " | compare" : "") + (isRecording ? " | REC" : "")
+            + (compare ? " | compare" : "") + (isRecording ? " | REC" : "") + (showFPS ? " | fps overlay" : "")
+        // With frame generation, HQ upscales the PS5's frames and fast the in-between ones; label it HQ.
+        let scalerName = neural ? (upscale == .neuralHQ && p >= .balanced ? "Neural HQ" : "Neural fast") : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear"
         cb.addCompletedHandler { [weak self] cb in
             _ = (lumaRef, chromaRef, pb)  // keep the source frame alive until the GPU is done with it
             let ms = (cb.gpuEndTime - cb.gpuStartTime) * 1000
             DispatchQueue.main.async {
-                self?.record(gpuMs: ms, mode: mode, src: (srcW, srcH), out: (outW, outH))
+                self?.record(gpuMs: ms, mode: mode, scaler: scalerName, src: (srcW, srcH), out: (outW, outH))
             }
         }
         cb.commit()
     }
 
-    private func record(gpuMs: Double, mode: String, src: (Int, Int), out: (Int, Int)) {
+    private func record(gpuMs: Double, mode: String, scaler: String, src: (Int, Int), out: (Int, Int)) {
         presented += 1
         gpuMsSum += gpuMs
         let now = CACurrentMediaTime()
@@ -623,6 +637,15 @@ final class RenderView: NSView {
             Double(got) / dt, Double(presented) / dt, skipped, gpuMsSum / Double(presented))
         if let extra = extraStats?(), !extra.isEmpty { line += " | " + extra }
         window?.title = line
+        // Overlay: frames actually shown, split into PS5 and generated frames when interpolating.
+        let shown = Int((Double(presented) / dt).rounded())
+        let gen = (interpolator?.generated ?? 0)
+        let genPerSec = Int((Double(gen - lastGenerated) / dt).rounded())
+        lastGenerated = gen
+        var hud = "\(shown) fps"
+        if interpolating && genPerSec > 0 { hud += "  ·  \(max(shown - genPerSec, 0)) PS5 + \(genPerSec) generated" }
+        hud += String(format: "  ·  %@  ·  %.1f ms GPU", scaler, gpuMsSum / Double(presented))
+        fpsOverlay?.update(hud, pixelSize: CGFloat(out.1) * 0.022)
         if let recorder, recorder.isRecording { recorder.note(line) }
         print(line)
         presented = 0

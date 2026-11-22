@@ -18,6 +18,7 @@ final class SettingsPanel: NSVisualEffectView {
     private let boost = NSButton(checkboxWithTitle: "HDR highlight boost", target: nil, action: nil)
     private let cleanup = NSButton(checkboxWithTitle: "Artifact clean-up", target: nil, action: nil)
     private let mic = NSButton(checkboxWithTitle: "Microphone", target: nil, action: nil)
+    private let fps = NSButton(checkboxWithTitle: "FPS counter on screen", target: nil, action: nil)
     private let compare = NSButton(checkboxWithTitle: "Split screen: standard | enhanced", target: nil, action: nil)
     private let record = NSButton(title: "Start recording", target: nil, action: nil)
     private let recordNote = NSTextField(labelWithString: "Saves to Movies (R)")
@@ -53,7 +54,7 @@ final class SettingsPanel: NSVisualEffectView {
         upscaler.target = self; upscaler.action = #selector(upscalerChanged)
         record.bezelStyle = .rounded
         record.controlSize = .small
-        for b in [interpolation, boost, cleanup, mic, compare, record] { b.target = self; b.action = #selector(toggled(_:)) }
+        for b in [interpolation, boost, cleanup, mic, compare, record, fps] { b.target = self; b.action = #selector(toggled(_:)) }
 
         func row(_ label: String, _ views: NSView...) -> NSView {
             let l = NSTextField(labelWithString: label)
@@ -73,7 +74,7 @@ final class SettingsPanel: NSVisualEffectView {
             row("Power", power, powerNote),
             row("Upscaler", upscaler),
             row("Motion", interpolation, interpolationNote),
-            row("Picture", boost, cleanup, compare),
+            row("Picture", boost, cleanup, compare, fps),
             row("Audio", mic),
             row("Capture", record, recordNote),
         ])
@@ -110,6 +111,7 @@ final class SettingsPanel: NSVisualEffectView {
         boost.state = v.highlightBoost ? .on : .off
         cleanup.state = v.cleanup ? .on : .off
         compare.state = v.compare ? .on : .off
+        fps.state = v.showFPS ? .on : .off
         record.title = v.isRecording ? "Stop recording" : "Start recording"
         recordNote.stringValue = v.isRecording ? "Recording… (R to stop)" : "Saves to Movies (R)"
         if let live = micLive?() {
@@ -137,6 +139,7 @@ final class SettingsPanel: NSVisualEffectView {
         case cleanup: v.setCleanup(b.state == .on)
         case mic: toggleMic?()
         case compare: v.setCompare(b.state == .on)
+        case fps: v.setShowFPS(b.state == .on)
         case record: v.toggleRecording()
         default: break
         }

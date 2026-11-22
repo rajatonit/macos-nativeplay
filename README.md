@@ -113,6 +113,7 @@ Press **S** (or **⌘,**, or choose **Show/Hide Settings** from the menu bar) to
 | **Upscaler** | How the 1080p stream is enlarged to the screen. **Neural HQ** and **Neural fast** run the FSRCNNX neural network on the GPU (the sharpest results). **MetalFX** is Apple's spatial upscaler. **Bilinear** is plain resizing, the cheapest. |
 | **120 fps frame generation** | Apple's machine-learning frame interpolation adds a generated frame between each pair from the PS5. Only runs in Max. Adds about one frame of input lag. |
 | **HDR highlight boost** | The PS5 masters highlights for around 400 nits; this stretches everything above 200 nits up to the XDR panel's 1000. Mid-tones and skin don't change. |
+| **FPS counter** | Shows frames per second, the upscaler and GPU time in the top-right corner of the picture. With frame generation on, it splits the count into frames from the PS5 and generated frames. |
 | **Artifact clean-up** | Smooths the banding and blocky steps that compression leaves in sky, fog and dark areas, before upscaling. Edges and texture are left as decoded. About 0.2 ms per frame. |
 | **Microphone** | Sends the Mac's microphone to the PS5 for party and game chat. Starts muted. |
 
@@ -129,6 +130,7 @@ All settings except the microphone are remembered between launches.
 | `H` | Toggle HDR highlight boost |
 | `D` | Toggle artifact clean-up |
 | `C` | Split screen: standard picture on the left, enhanced on the right |
+| `F` | On-screen fps counter |
 | `R` | Start or stop recording the picture to `~/Movies` |
 | `M` | Toggle microphone |
 | `⌃⌘F` | Full screen |
@@ -162,21 +164,23 @@ Pass options with `open -a PS5Stream --args <options>`, or run `/Applications/PS
 | `--verbose` | Print chiaki's log and pipeline counters |
 | `--file clip.mov` | Play a local video through the renderer, without a console |
 | `--compare` | Start in split-screen compare mode |
+| `--fps` | Start with the on-screen fps counter |
 | `--record` | Start recording as soon as the picture appears |
 
 ### Recording a demo clip
 
 Recording saves what the app actually renders: full resolution, at the frame rate on screen (up to 120 fps), with no Screen Recording permission needed. HDR is converted to SDR so the clip looks right everywhere. A `.stats.txt` file with the per-second fps and GPU numbers is saved next to the video.
 
-1. Press **C** for the split screen (plain scaling on the left, the full pipeline on the right). It's most convincing with fine detail: foliage, fences, signs, distant buildings.
-2. Press **R** to start recording, play for 20–30 seconds, then press **R** again.
-3. Make a captioned 1080p clip from it:
+1. Press **F** for the on-screen fps counter. It's drawn into the picture, so it shows in full screen and in recordings. With frame generation on it reads like `119 fps · 59 PS5 + 60 generated · Neural HQ · 8.5 ms GPU`, so it's clear which frames came from the console.
+2. Press **C** for the split screen (plain scaling on the left, the full pipeline on the right). It's most convincing with fine detail: foliage, fences, signs, distant buildings.
+3. Press **R** to start recording, play for 20–30 seconds, then press **R** again.
+4. Make a captioned 1080p clip from it:
 
    ```bash
    swift Tools/make-demo.swift ~/Movies/"PS5Stream 2026-11-22 at 21.30.00.mp4" --start 5 --duration 20
    ```
 
-   It adds a title, labels for the two halves, the measured mode, fps and GPU time for each second, and a link to this project at the end. Change the text with `--title` and `--link`. The result is saved next to the recording as `… demo.mp4`.
+   It adds a title, labels for the two halves, and a link to this project at the end. If the fps counter wasn't on, it also captions each second with the measured mode, fps and GPU time (`--captions` forces these on). Change the text with `--title` and `--link`. The result is saved next to the recording as `… demo.mp4`.
 
 Most video sites and players show 60 fps at most, so a 120 fps clip plays at 60 there. The caption still shows the real on-screen rate.
 
@@ -230,6 +234,7 @@ open build/PS5Stream.app --args --file samples/test-1080p.mov
 | `FrameInterpolator.swift` | 60 → 120 fps with VideoToolbox frame interpolation |
 | `SettingsPanel.swift` | On-screen settings panel |
 | `Recorder.swift` | Recording to `~/Movies` (R) |
+| `FPSOverlay.swift` | On-screen fps counter (F) |
 | `Input.swift`, `DualSenseFeedback.swift` | Controller input, PS button, haptics, triggers, lightbar |
 | `PowerSource.swift` | Battery and charger detection |
 
