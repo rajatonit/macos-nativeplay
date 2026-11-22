@@ -39,6 +39,15 @@ float expand(float x, float4 b) {
     float t = (x - knee) / (src - knee);
     return knee + (dst - knee) * (a * t + (1.0 - a) * t * t);
 }
+// Compare mode: the left half of the window shows the standard picture, with a thin divider.
+kernel void splitCompose(texture2d<float, access::read> standard [[texture(0)]],
+                         texture2d<float, access::write> out [[texture(1)]],
+                         constant float4 &white [[buffer(0)]],
+                         uint2 gid [[thread_position_in_grid]]) {
+    uint mid = out.get_width() / 2;
+    if (gid.x > mid + 1 || gid.y >= out.get_height()) return;
+    out.write(gid.x + 1 >= mid ? white : standard.read(gid), gid);
+}
 vertex VOut vmain(uint vid [[vertex_id]]) {
     float2 p = float2((vid << 1) & 2, vid & 2);
     VOut o;
@@ -86,6 +95,13 @@ final class RenderView: NSView {
     /// Smooth out banding and blocky gradients before upscaling (D toggles, remembered).
     private(set) var cleanup = UserDefaults.standard.object(forKey: "cleanup") as? Bool ?? true
     private lazy var cleaner = ArtifactCleaner(device: device)
+    /// Split screen (C toggles): left half is plain bilinear scaling of the raw stream, with no clean-up or
+    /// boost; right half is the full pipeline. For demos and for judging the settings.
+    private(set) var compare = false
+    private var compareTexture: MTLTexture?
+    private var splitCompose: MTLComputePipelineState!
+    /// Records the window's picture to ~/Movies (R toggles).
+    private(set) lazy var recorder = Recorder(device: device)
 
     private let device = MTLCreateSystemDefaultDevice()!
     private lazy var queue = device.makeCommandQueue()!
@@ -162,6 +178,7 @@ final class RenderView: NSView {
         pd.fragmentFunction = lib.makeFunction(name: "fmain")
         pd.colorAttachments[0].pixelFormat = .rgba16Float
         pipeline = try! device.makeRenderPipelineState(descriptor: pd)
+        splitCompose = try! device.makeComputePipelineState(function: lib.makeFunction(name: "splitCompose")!)
 
         metalLayer.device = device
         metalLayer.pixelFormat = .rgba16Float
@@ -250,6 +267,19 @@ final class RenderView: NSView {
         print("render: artifact clean-up \(on ? "on" : "off")")
         onSettingsChanged?()
     }
+    func setCompare(_ on: Bool) {
+        compare = on
+        print("render: split-screen compare \(on ? "on" : "off")")
+        onSettingsChanged?()
+    }
+    var isRecording: Bool { recorder?.isRecording ?? false }
+    func toggleRecording() {
+        guard let recorder else { print("record: unavailable"); return }
+        if recorder.isRecording { recorder.end() }
+        else if let out = outputTexture { recorder.begin(width: out.width, height: out.height) }
+        else { print("record: nothing on screen yet") }
+        onSettingsChanged?()
+    }
     func setHighlightBoost(_ on: Bool) {
         highlightBoost = on
         print("render: highlight boost \(on ? "on" : "off")")
@@ -270,6 +300,8 @@ final class RenderView: NSView {
         case "d" where !cmd: setCleanup(!cleanup)
         case "h" where !cmd: setHighlightBoost(!highlightBoost)
         case "s" where !cmd: onToggleSettings?()
+        case "c" where !cmd: setCompare(!compare)
+        case "r" where !cmd: toggleRecording()
         case "q" where cmd: NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
         }
@@ -516,6 +548,37 @@ final class RenderView: NSView {
         } else {
             lanczos.encode(commandBuffer: cb, sourceTexture: rgb, destinationTexture: out)
         }
+        if compare {
+            if compareTexture?.width != outW || compareTexture?.height != outH { compareTexture = makeTexture(outW, outH) }
+            if let cmp = compareTexture, let e2 = cb.makeRenderCommandEncoder(descriptor: {
+                let d = MTLRenderPassDescriptor()
+                d.colorAttachments[0].texture = rgb
+                d.colorAttachments[0].loadAction = .dontCare
+                d.colorAttachments[0].storeAction = .store
+                return d
+            }()) {
+                var plain = info.uniforms  // no highlight boost
+                e2.setRenderPipelineState(pipeline)
+                e2.setFragmentTexture(decodedLuma, index: 0)
+                e2.setFragmentTexture(decodedChroma, index: 1)
+                e2.setFragmentBytes(&plain, length: MemoryLayout<Uniforms>.stride, index: 0)
+                e2.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                e2.endEncoding()
+                bilinear.encode(commandBuffer: cb, sourceTexture: rgb, destinationTexture: cmp)
+                if let ce = cb.makeComputeCommandEncoder() {
+                    // Divider at about 200 nits in HDR (PQ 0.58), plain white-ish in SDR.
+                    var white = info.hdr ? simd_float4(0.58, 0.58, 0.58, 1) : simd_float4(0.85, 0.85, 0.85, 1)
+                    ce.setComputePipelineState(splitCompose)
+                    ce.setTexture(cmp, index: 0)
+                    ce.setTexture(out, index: 1)
+                    ce.setBytes(&white, length: 16, index: 0)
+                    ce.dispatchThreads(MTLSize(width: outW / 2 + 2, height: outH, depth: 1),
+                                       threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
+                    ce.endEncoding()
+                }
+            }
+        }
+        if let recorder, recorder.isRecording { recorder.capture(cb, frame: out, hdr: info.hdr) }
         if let blit = cb.makeBlitCommandEncoder() {
             blit.copy(from: out, to: drawable.texture)
             blit.endEncoding()
@@ -531,6 +594,7 @@ final class RenderView: NSView {
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")
             + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
+            + (compare ? " | compare" : "") + (isRecording ? " | REC" : "")
         cb.addCompletedHandler { [weak self] cb in
             _ = (lumaRef, chromaRef, pb)  // keep the source frame alive until the GPU is done with it
             let ms = (cb.gpuEndTime - cb.gpuStartTime) * 1000
@@ -559,6 +623,7 @@ final class RenderView: NSView {
             Double(got) / dt, Double(presented) / dt, skipped, gpuMsSum / Double(presented))
         if let extra = extraStats?(), !extra.isEmpty { line += " | " + extra }
         window?.title = line
+        if let recorder, recorder.isRecording { recorder.note(line) }
         print(line)
         presented = 0
         gpuMsSum = 0

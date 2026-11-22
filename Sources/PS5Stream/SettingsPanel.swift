@@ -18,6 +18,9 @@ final class SettingsPanel: NSVisualEffectView {
     private let boost = NSButton(checkboxWithTitle: "HDR highlight boost", target: nil, action: nil)
     private let cleanup = NSButton(checkboxWithTitle: "Artifact clean-up", target: nil, action: nil)
     private let mic = NSButton(checkboxWithTitle: "Microphone", target: nil, action: nil)
+    private let compare = NSButton(checkboxWithTitle: "Split screen: standard | enhanced", target: nil, action: nil)
+    private let record = NSButton(title: "Start recording", target: nil, action: nil)
+    private let recordNote = NSTextField(labelWithString: "Saves to Movies (R)")
 
     init(renderView: RenderView) {
         self.renderView = renderView
@@ -41,14 +44,16 @@ final class SettingsPanel: NSVisualEffectView {
         let header = NSStackView(views: [title, hint, NSView(), close])
         header.alignment = .firstBaseline
 
-        for note in [powerNote, interpolationNote] {
+        for note in [powerNote, interpolationNote, recordNote] {
             note.font = .systemFont(ofSize: 11)
             note.textColor = .secondaryLabelColor
         }
         power.target = self; power.action = #selector(powerChanged)
         upscaler.addItems(withTitles: RenderView.Upscale.allCases.map(\.rawValue))
         upscaler.target = self; upscaler.action = #selector(upscalerChanged)
-        for b in [interpolation, boost, cleanup, mic] { b.target = self; b.action = #selector(toggled(_:)) }
+        record.bezelStyle = .rounded
+        record.controlSize = .small
+        for b in [interpolation, boost, cleanup, mic, compare, record] { b.target = self; b.action = #selector(toggled(_:)) }
 
         func row(_ label: String, _ views: NSView...) -> NSView {
             let l = NSTextField(labelWithString: label)
@@ -68,8 +73,9 @@ final class SettingsPanel: NSVisualEffectView {
             row("Power", power, powerNote),
             row("Upscaler", upscaler),
             row("Motion", interpolation, interpolationNote),
-            row("Picture", boost, cleanup),
+            row("Picture", boost, cleanup, compare),
             row("Audio", mic),
+            row("Capture", record, recordNote),
         ])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -103,6 +109,9 @@ final class SettingsPanel: NSVisualEffectView {
         interpolationNote.isHidden = v.power == .max
         boost.state = v.highlightBoost ? .on : .off
         cleanup.state = v.cleanup ? .on : .off
+        compare.state = v.compare ? .on : .off
+        record.title = v.isRecording ? "Stop recording" : "Start recording"
+        recordNote.stringValue = v.isRecording ? "Recording… (R to stop)" : "Saves to Movies (R)"
         if let live = micLive?() {
             mic.isEnabled = true
             mic.state = live ? .on : .off
@@ -127,6 +136,8 @@ final class SettingsPanel: NSVisualEffectView {
         case boost: v.setHighlightBoost(b.state == .on)
         case cleanup: v.setCleanup(b.state == .on)
         case mic: toggleMic?()
+        case compare: v.setCompare(b.state == .on)
+        case record: v.toggleRecording()
         default: break
         }
         done()

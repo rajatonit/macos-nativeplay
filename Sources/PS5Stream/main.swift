@@ -3,7 +3,7 @@
 //   PS5Stream --host 192.168.1.20 [--sdr] [--bitrate 30000] [--resolution 1080|1440|2160] [--on-quit ask|rest|keep] [--verbose]
 //   PS5Stream --file clip.mov          (offline test of the render pipeline)
 //
-// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, D toggles artifact clean-up, M toggles the microphone, S or Cmd-, shows the settings panel, Cmd-Q quits, Cmd-Ctrl-F full screen.
+// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, D toggles artifact clean-up, C toggles split-screen compare, R starts and stops recording, M toggles the microphone, S or Cmd-, shows the settings panel, Cmd-Q quits, Cmd-Ctrl-F full screen.
 // Without a controller: arrows = d-pad, Return = cross, Esc = circle, P = PS, O = options, T = touchpad.
 
 import AVFoundation
@@ -25,6 +25,8 @@ struct Options {
     var seconds: Double?
     var onQuit: QuitAction?
     var testFeedback = false
+    var compare = false
+    var record = false
 
     init(_ args: [String]) {
         let saved = UserDefaults.standard.integer(forKey: "resolution")
@@ -43,6 +45,8 @@ struct Options {
                 UserDefaults.standard.set(Int(height), forKey: "resolution")  // remembered for Finder launches
             case "--seconds": seconds = it.next().flatMap { Double($0) }
             case "--test-feedback": testFeedback = true
+            case "--compare": compare = true
+            case "--record": record = true
             case "--on-quit": onQuit = it.next().flatMap { QuitAction(rawValue: $0) }
             default: print("unknown option \(a)")
             }
@@ -158,6 +162,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
         }
 
+        if options.compare { view.setCompare(true) }
+        if options.record {
+            // Start once frames are on screen (the recording takes the window's size).
+            func tryStart() {
+                if view.isRecording { return }
+                view.toggleRecording()
+                if !view.isRecording { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: tryStart) }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: tryStart)
+        }
         if let s = options.seconds {
             DispatchQueue.main.asyncAfter(deadline: .now() + s) { NSApp.terminate(nil) }
         }
@@ -396,6 +410,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        videoView?.recorder?.endAndWait()  // a half-written mp4 can't be played
         // Shutting down waits for libchiaki's network threads; never let a sleeping or
         // unreachable console hold the app open for more than a couple of seconds.
         let done = DispatchSemaphore(value: 0)
