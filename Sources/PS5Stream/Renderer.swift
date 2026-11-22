@@ -118,7 +118,8 @@ final class RenderView: NSView {
     // MARK: - Power
 
     /// How hard the GPU works (E cycles, remembered). The Mac also steps down on its own when macOS
-    /// reports it's getting hot, and goes to Cool in Low Power Mode.
+    /// reports it's getting hot, and goes to Cool on battery or in Low Power Mode; plugging the charger
+    /// back in restores the chosen mode.
     /// GPU work per frame on the M5 Pro at full clock (busy % is misleading: the GPU clocks down):
     ///   Max:      120 fps interpolation + Neural HQ on real frames; interpolation (~9 ms a frame) dominates
     ///   Balanced: Neural HQ, 60 fps (~5.5 ms per frame)
@@ -131,7 +132,7 @@ final class RenderView: NSView {
     private var powerChoice: Power = Power(rawValue: UserDefaults.standard.object(forKey: "power") as? Int ?? Power.balanced.rawValue) ?? .balanced
     /// What heat and Low Power Mode currently allow.
     private var powerCap: Power {
-        if ProcessInfo.processInfo.isLowPowerModeEnabled { return .cool }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled || PowerSource.onBattery { return .cool }
         switch ProcessInfo.processInfo.thermalState {
         case .critical: return .cool
         case .serious: return .balanced
@@ -166,6 +167,7 @@ final class RenderView: NSView {
         metalLayer.backgroundColor = NSColor.black.cgColor
         wantsLayer = true
         layer = metalLayer
+        PowerSource.startWatching()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -218,7 +220,7 @@ final class RenderView: NSView {
             let all = Power.allCases
             powerChoice = all[(all.firstIndex(of: powerChoice)! + 1) % all.count]
             UserDefaults.standard.set(powerChoice.rawValue, forKey: "power")
-            print("render: power mode \(powerChoice.name)" + (power != powerChoice ? " (limited to \(power.name) by heat or Low Power Mode)" : ""))
+            print("render: power mode \(powerChoice.name)" + (power != powerChoice ? " (limited to \(power.name) by battery, heat or Low Power Mode)" : ""))
         case "h": highlightBoost.toggle(); print("render: highlight boost \(highlightBoost ? "on" : "off")")
         case "q" where event.modifierFlags.contains(.command): NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
@@ -469,7 +471,7 @@ final class RenderView: NSView {
         let p = power
         if p != loggedPower {
             loggedPower = p
-            print("render: power \(p.name)" + (p != powerChoice ? " (stepped down from \(powerChoice.name): \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power Mode" : "Mac is hot"))" : ""))
+            print("render: power \(p.name)" + (p != powerChoice ? " (stepped down from \(powerChoice.name): \(PowerSource.onBattery ? "on battery" : ProcessInfo.processInfo.isLowPowerModeEnabled ? "Low Power Mode" : "Mac is hot"))" : ""))
         }
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")
