@@ -43,6 +43,7 @@ Keys:
 - `E` cycles the power mode: Max (120 fps + Neural HQ; frame interpolation is the biggest cost), Balanced (Neural HQ at 60 fps, ~5.5 ms of GPU work per frame, default), Cool (Neural fast at 60 fps, ~3 ms). Remembered. The app steps down by itself when macOS reports the Mac is hot, and uses Cool on battery or in Low Power Mode; plugging the charger back in restores your choice.
 - `I` toggles 120 fps (only used in Max): Apple's machine-learning frame interpolation adds a generated frame between each pair from the PS5 (macOS 26+, on by default, remembered). It adds roughly one frame of input lag. With Neural HQ, real PS5 frames still get HQ and the generated in-between frames get Neural fast.
 - `H` toggles the HDR highlight boost (stretches highlights above 200 nits up to 1000).
+- `D` toggles artifact clean-up (on by default, remembered). Before upscaling, banding and blocky steps in smooth areas like sky, fog and dark walls are smoothed back into gradients. Edges and texture are left exactly as decoded. It costs about 0.2 ms of GPU work per frame, so it runs in every power mode. The window title shows `clean` while it's on.
 - `M` toggles the microphone.
 - `Cmd-Ctrl-F` switches to full screen.
 - `Cmd-Q` quits.

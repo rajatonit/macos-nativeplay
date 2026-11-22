@@ -83,6 +83,9 @@ final class RenderView: NSView {
     /// Brightest the source has been recently (nits), from the decoder. The curve maps this to 1000.
     var sourcePeakNits: Double = 400
     private let boostKnee: Float = 200, boostTarget: Float = 1000
+    /// Smooth out banding and blocky gradients before upscaling (D toggles, remembered).
+    private(set) var cleanup = UserDefaults.standard.object(forKey: "cleanup") as? Bool ?? true
+    private lazy var cleaner = ArtifactCleaner(device: device)
 
     private let device = MTLCreateSystemDefaultDevice()!
     private lazy var queue = device.makeCommandQueue()!
@@ -221,6 +224,10 @@ final class RenderView: NSView {
             powerChoice = all[(all.firstIndex(of: powerChoice)! + 1) % all.count]
             UserDefaults.standard.set(powerChoice.rawValue, forKey: "power")
             print("render: power mode \(powerChoice.name)" + (power != powerChoice ? " (limited to \(power.name) by battery, heat or Low Power Mode)" : ""))
+        case "d":
+            cleanup.toggle()
+            UserDefaults.standard.set(cleanup, forKey: "cleanup")
+            print("render: artifact clean-up \(cleanup ? "on" : "off")")
         case "h": highlightBoost.toggle(); print("render: highlight boost \(highlightBoost ? "on" : "off")")
         case "q" where event.modifierFlags.contains(.command): NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
@@ -262,6 +269,7 @@ final class RenderView: NSView {
         var chromaFormat: MTLPixelFormat
         var uniforms: Uniforms
         var hdr: Bool
+        var bits: Int
     }
 
     private func describe(_ pb: CVPixelBuffer) -> FrameInfo? {
@@ -298,7 +306,7 @@ final class RenderView: NSView {
             lumaFormat: bits == 8 ? .r8Unorm : .r16Unorm,
             chromaFormat: bits == 8 ? .rg8Unorm : .rg16Unorm,
             uniforms: Uniforms(m: m, offset: simd_float3(yOff, cOff, cOff)),
-            hdr: hdr)
+            hdr: hdr, bits: bits)
     }
 
     private func configureLayer(hdr: Bool) {
@@ -394,8 +402,8 @@ final class RenderView: NSView {
         CVMetalTextureCacheCreateTextureFromImage(
             nil, textureCache, pb, nil, info.chromaFormat, srcW / 2, srcH / 2, 1, &chromaRef)
         guard let lumaRef, let chromaRef,
-              let luma = CVMetalTextureGetTexture(lumaRef),
-              let chroma = CVMetalTextureGetTexture(chromaRef)
+              let decodedLuma = CVMetalTextureGetTexture(lumaRef),
+              let decodedChroma = CVMetalTextureGetTexture(chromaRef)
         else { return }
 
         configureLayer(hdr: info.hdr)
@@ -414,6 +422,10 @@ final class RenderView: NSView {
         // Neural path: FSRCNNX doubles the luma, Lanczos fits that single channel to the window, then the
         // colour conversion (and highlight boost) runs once, straight into the output at window size.
         // Only used when the window is bigger than the source.
+        // Clean-up runs first, on the decoded planes, so neither the network nor MetalFX sharpens the steps.
+        var luma = decodedLuma, chroma = decodedChroma
+        let cleaning = cleanup && cleaner != nil
+        if cleaning, let (l, c) = cleaner?.encode(cb, luma: luma, chroma: chroma, bits: info.bits) { (luma, chroma) = (l, c) }
         var lumaIn = luma, target = rgb, neural = false
         // HQ (~6 ms) can't run 120 times a second: with interpolation on, real PS5 frames get HQ and
         // the generated in-between frames get the fast network.
@@ -475,7 +487,7 @@ final class RenderView: NSView {
         }
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")
-            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR")
+            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
         cb.addCompletedHandler { [weak self] cb in
             _ = (lumaRef, chromaRef, pb)  // keep the source frame alive until the GPU is done with it

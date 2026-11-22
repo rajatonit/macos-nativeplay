@@ -3,7 +3,7 @@
 //   PS5Stream --host 192.168.1.20 [--sdr] [--bitrate 30000] [--resolution 1080|1440|2160] [--on-quit ask|rest|keep] [--verbose]
 //   PS5Stream --file clip.mov          (offline test of the render pipeline)
 //
-// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, M toggles the microphone, Cmd-Q quits, Cmd-Ctrl-F full screen.
+// Keys: E cycles the power mode (Max, Balanced, Cool), U cycles the upscaler (Neural HQ, Neural fast, MetalFX, bilinear), I toggles 120 fps interpolation, H toggles the HDR highlight boost, D toggles artifact clean-up, M toggles the microphone, Cmd-Q quits, Cmd-Ctrl-F full screen.
 // Without a controller: arrows = d-pad, Return = cross, Esc = circle, P = PS, O = options, T = touchpad.
 
 import AVFoundation
