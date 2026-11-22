@@ -54,6 +54,7 @@ func caption(_ line: String) -> (String, Bool)? {
     if upscaler == "Neural HQ + fast in-between" { upscaler = "Neural HQ" }
     var bits = ["\(power) mode", upscaler]
     if seg.contains(" clean") { bits.append("artifact clean-up") }
+    if seg.contains(" ai-grade") { bits.append("AI grade") }
     if seg.contains(" look") { bits.append("enhanced look") }
     if seg.contains("boost") { bits.append("HDR boost") }
     let game = find("game [0-9]+ fps").map { " from a " + $0.replacingOccurrences(of: "game ", with: "") + " game" } ?? ""
@@ -152,7 +153,8 @@ Task {
             // Name what actually ran on the right half, and keep clear of the app's fps counter (top right).
             let neuralRan = stats.contains { $0.text.contains("Neural") }
             let lookRan = stats.contains { $0.text.contains("enhanced look") }
-            let right = (neuralRan ? "Neural upscaling + " : "") + (lookRan ? "enhanced look" : "clean-up")
+            let gradeRan = stats.contains { $0.text.contains("AI grade") }
+            let right = (neuralRan ? "Neural upscaling + " : "") + (gradeRan && lookRan ? "AI grade + enhanced look" : gradeRan ? "AI grade" : lookRan ? "enhanced look" : "clean-up")
             let rightY = stats.contains(where: \.overlay) ? H - 150 : H - 80
             show(pill("Standard (plain scaling)", size: 30, weight: .semibold, x: 30, y: H - 80), 0, duration, fade: 0)
             show(pill(right.prefix(1).uppercased() + right.dropFirst(), size: 30, weight: .semibold, x: W - 30, y: rightY, align: .right),

@@ -9,3 +9,7 @@ vendor/.venv/
 samples/
 
 .DS_Store
+
+# Neural grade training environment, data and model cache (Tools/relight)
+Tools/relight/.venv/
+Tools/relight/data/

@@ -102,6 +102,10 @@ final class RenderView: NSView {
     /// Clarity, contrast, vibrance and a light grade on the upscaled frame (L toggles, remembered).
     private(set) var enhanceLook = UserDefaults.standard.bool(forKey: "enhancedLook")
     private lazy var look = EnhancedLook(device: device)
+    /// Learned "real camera" light and colour (G toggles, remembered); strength 0...1.5, 1 = as trained.
+    private(set) var aiGrade = UserDefaults.standard.bool(forKey: "aiGrade")
+    private(set) var aiGradeStrength = UserDefaults.standard.object(forKey: "aiGradeStrength") as? Float ?? 1.0
+    private lazy var grade = NeuralGrade(device: device)
     private var splitCompose: MTLComputePipelineState!
     /// Live fps readout drawn into the frame (F toggles, remembered).
     private(set) var showFPS = UserDefaults.standard.bool(forKey: "fpsOverlay")
@@ -301,6 +305,18 @@ final class RenderView: NSView {
         print("render: enhanced look \(on ? "on" : "off")")
         onSettingsChanged?()
     }
+    func setAIGrade(_ on: Bool) {
+        aiGrade = on
+        UserDefaults.standard.set(on, forKey: "aiGrade")
+        grade?.reset()
+        print("render: AI grade \(on ? "on" : "off")" + (on && grade == nil ? " (unavailable)" : ""))
+        onSettingsChanged?()
+    }
+    func setAIGradeStrength(_ s: Float) {
+        aiGradeStrength = min(max(s, 0), 1.5)
+        UserDefaults.standard.set(aiGradeStrength, forKey: "aiGradeStrength")
+        onSettingsChanged?()
+    }
     func setHighlightBoost(_ on: Bool) {
         highlightBoost = on
         print("render: highlight boost \(on ? "on" : "off")")
@@ -324,6 +340,7 @@ final class RenderView: NSView {
         case "c" where !cmd: setCompare(!compare)
         case "f" where !cmd: setShowFPS(!showFPS)
         case "l" where !cmd: setEnhancedLook(!enhanceLook)
+        case "g" where !cmd: setAIGrade(!aiGrade)
         case "r" where !cmd: toggleRecording()
         case "q" where cmd: NSApp.terminate(nil)
         default: onKey?(event.keyCode, true)
@@ -575,6 +592,11 @@ final class RenderView: NSView {
         }
         // Grade after scaling (so the upscaler sees the original picture) and before the compare split
         // (so its left half stays standard).
+        let aiGrading = aiGrade && grade != nil
+        if aiGrading, let grade {
+            grade.strength = aiGradeStrength
+            grade.encode(cb, frame: out, hdr: info.hdr)
+        }
         let grading = enhanceLook && look != nil
         if grading { look?.encode(cb, frame: out, hdr: info.hdr) }
         if compare {
@@ -623,7 +645,7 @@ final class RenderView: NSView {
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
         let mode = p.name + " | " + (interpolating ? String(format: "120 fps (%@ interp %.1f ms) ",
                                                             cadence.halfRate ? "30->120," : "60->120,", interpolator?.lastMs ?? 0) : "")
-            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "") + (grading ? " look" : "")
+            + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "") + (aiGrading ? String(format: " ai-grade %.1f", aiGradeStrength) : "") + (grading ? " look" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
             + (compare ? " | compare" : "") + (isRecording ? " | REC" : "") + (showFPS ? " | fps overlay" : "")
         // With frame generation, HQ upscales the PS5's frames and fast the in-between ones; label it HQ.

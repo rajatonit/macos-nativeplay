@@ -18,6 +18,8 @@ final class SettingsPanel: NSVisualEffectView {
     private let boost = NSButton(checkboxWithTitle: "HDR highlight boost", target: nil, action: nil)
     private let cleanup = NSButton(checkboxWithTitle: "Artifact clean-up", target: nil, action: nil)
     private let look = NSButton(checkboxWithTitle: "Enhanced look (depth + colour)", target: nil, action: nil)
+    private let aiGrade = NSButton(checkboxWithTitle: "AI grade (real-camera colour)", target: nil, action: nil)
+    private let aiStrength = NSSlider(value: 1, minValue: 0, maxValue: 1.5, target: nil, action: nil)
     private let mic = NSButton(checkboxWithTitle: "Microphone", target: nil, action: nil)
     private let fps = NSButton(checkboxWithTitle: "FPS counter on screen", target: nil, action: nil)
     private let compare = NSButton(checkboxWithTitle: "Split screen: standard | enhanced", target: nil, action: nil)
@@ -53,9 +55,12 @@ final class SettingsPanel: NSVisualEffectView {
         power.target = self; power.action = #selector(powerChanged)
         upscaler.addItems(withTitles: RenderView.Upscale.allCases.map(\.rawValue))
         upscaler.target = self; upscaler.action = #selector(upscalerChanged)
+        aiStrength.target = self; aiStrength.action = #selector(strengthChanged)
+        aiStrength.isContinuous = true
+        aiStrength.widthAnchor.constraint(equalToConstant: 200).isActive = true
         record.bezelStyle = .rounded
         record.controlSize = .small
-        for b in [interpolation, boost, cleanup, look, mic, compare, record, fps] { b.target = self; b.action = #selector(toggled(_:)) }
+        for b in [interpolation, boost, cleanup, look, aiGrade, mic, compare, record, fps] { b.target = self; b.action = #selector(toggled(_:)) }
 
         func row(_ label: String, _ views: NSView...) -> NSView {
             let l = NSTextField(labelWithString: label)
@@ -75,7 +80,7 @@ final class SettingsPanel: NSVisualEffectView {
             row("Power", power, powerNote),
             row("Upscaler", upscaler),
             row("Motion", interpolation, interpolationNote),
-            row("Picture", look, boost, cleanup, compare, fps),
+            row("Picture", aiGrade, aiStrength, look, boost, cleanup, compare, fps),
             row("Audio", mic),
             row("Capture", record, recordNote),
         ])
@@ -112,6 +117,10 @@ final class SettingsPanel: NSVisualEffectView {
         boost.state = v.highlightBoost ? .on : .off
         cleanup.state = v.cleanup ? .on : .off
         look.state = v.enhanceLook ? .on : .off
+        aiGrade.state = v.aiGrade ? .on : .off
+        aiStrength.floatValue = v.aiGradeStrength
+        aiStrength.isEnabled = v.aiGrade
+        aiStrength.toolTip = String(format: "Strength %.1fx", v.aiGradeStrength)
         compare.state = v.compare ? .on : .off
         fps.state = v.showFPS ? .on : .off
         record.title = v.isRecording ? "Stop recording" : "Start recording"
@@ -140,6 +149,7 @@ final class SettingsPanel: NSVisualEffectView {
         case boost: v.setHighlightBoost(b.state == .on)
         case cleanup: v.setCleanup(b.state == .on)
         case look: v.setEnhancedLook(b.state == .on)
+        case aiGrade: v.setAIGrade(b.state == .on)
         case mic: toggleMic?()
         case compare: v.setCompare(b.state == .on)
         case fps: v.setShowFPS(b.state == .on)
@@ -148,6 +158,7 @@ final class SettingsPanel: NSVisualEffectView {
         }
         done()
     }
+    @objc private func strengthChanged() { renderView?.setAIGradeStrength(aiStrength.floatValue) }
     @objc private func hide() { renderView?.onToggleSettings?() }
 
     /// After a click, keys go back to the game.
