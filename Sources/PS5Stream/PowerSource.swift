@@ -23,6 +23,8 @@ enum PowerSource {
     }
 
     private static func read() -> Bool {
+        // For testing the higher power modes unplugged.
+        if ProcessInfo.processInfo.environment["PS5STREAM_IGNORE_BATTERY"] == "1" { return false }
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() else { return false }
         return (type as String) == kIOPSBatteryPowerValue

@@ -34,7 +34,7 @@ Only the M5 Pro has been measured. The M5 family has neural accelerators in the 
 | Mac | Suggested settings | Notes |
 |---|---|---|
 | M5 Pro / M5 Max | Anything, including **Max** (120 fps frame generation + Neural HQ) | Measured on a 14" M5 Pro: Balanced ~5.5 ms, Cool ~3 ms of GPU work per frame. |
-| M5, M4 Pro / Max, M3 Max, M2 Max, M1 Max | **Balanced** (Neural HQ, 60 fps). Max may work on Max-class chips. | Frame generation costs ~9 ms per frame on an M5 Pro, so it's tight below that. |
+| M5, M4 Pro / Max, M3 Max, M2 Max, M1 Max | **Balanced** (Neural HQ, 60 fps). Max may work on Max-class chips. | Frame generation costs ~10 ms per PS5 frame for a 60 fps game and ~26 ms per game frame for a 30 fps game (3 in-betweens) on an M5 Pro, so it's tight below that. |
 | M4, M3 Pro, M2 Pro, M1 Pro | **Cool** (Neural fast) or upscaler **MetalFX**; try Neural HQ and watch the GPU ms | Neural HQ is roughly 10–15 ms here, which leaves little headroom. |
 | M1, M2, M3 (base) | **Cool** with upscaler **MetalFX** or **Neural fast** | Clean-up (~0.5 ms) and highlight boost are cheap and fine on every Mac. |
 
@@ -111,9 +111,9 @@ Press **S** (or **⌘,**, or choose **Show/Hide Settings** from the menu bar) to
 |---|---|
 | **Power** | **Cool**: Neural fast at 60 fps, the least GPU work. **Balanced** (default): Neural HQ at 60 fps. **Max**: Neural HQ plus 120 fps frame generation. The app steps down by itself when the Mac gets hot, and uses Cool on battery or in Low Power Mode; plugging the charger back in restores your choice. |
 | **Upscaler** | How the 1080p stream is enlarged to the screen. **Neural HQ** and **Neural fast** run the FSRCNNX neural network on the GPU (the sharpest results). **MetalFX** is Apple's spatial upscaler. **Bilinear** is plain resizing, the cheapest. |
-| **120 fps frame generation** | Apple's machine-learning frame interpolation adds a generated frame between each pair from the PS5. Only runs in Max. Adds about one frame of input lag. |
+| **120 fps frame generation** | Apple's machine-learning frame interpolation fills in frames up to 120 fps. The app works out the game's real frame rate: a 60 fps game gets 1 generated frame between each pair, and a 30 fps game (which the PS5 streams at 60 by sending each picture twice) gets its repeats dropped and 3 generated frames between each pair, so motion is smooth instead of judder-stepping. Only runs in Max. Adds about one game frame of input lag (more at 30 fps). This is interpolation of the video, not in-game frame generation like DLSS or XeSS, which need the game's own motion data. |
 | **HDR highlight boost** | The PS5 masters highlights for around 400 nits; this stretches everything above 200 nits up to the XDR panel's 1000. Mid-tones and skin don't change. |
-| **FPS counter** | Shows frames per second, the upscaler and GPU time in the top-right corner of the picture. With frame generation on, it splits the count into frames from the PS5 and generated frames. |
+| **FPS counter** | Shows frames on screen, the game's real frame rate, how many frames were generated, the upscaler and GPU time in the top-right corner of the picture. |
 | **Artifact clean-up** | Smooths the banding and blocky steps that compression leaves in sky, fog and dark areas, before upscaling. Edges and texture are left as decoded. About 0.2 ms per frame. |
 | **Microphone** | Sends the Mac's microphone to the PS5 for party and game chat. Starts muted. |
 
@@ -171,7 +171,7 @@ Pass options with `open -a PS5Stream --args <options>`, or run `/Applications/PS
 
 Recording saves what the app actually renders: full resolution, at the frame rate on screen (up to 120 fps), with no Screen Recording permission needed. HDR is converted to SDR so the clip looks right everywhere. A `.stats.txt` file with the per-second fps and GPU numbers is saved next to the video.
 
-1. Press **F** for the on-screen fps counter. It's drawn into the picture, so it shows in full screen and in recordings. With frame generation on it reads like `119 fps · 59 PS5 + 60 generated · Neural HQ · 8.5 ms GPU`, so it's clear which frames came from the console.
+1. Press **F** for the on-screen fps counter. It's drawn into the picture, so it shows in full screen and in recordings. With frame generation on it reads like `120 fps on screen · game 30 fps · 90 generated · Neural HQ · 4.5 ms GPU + 26.2 ms frame gen`, so it's clear how many frames the game itself rendered.
 2. Press **C** for the split screen (plain scaling on the left, the full pipeline on the right). It's most convincing with fine detail: foliage, fences, signs, distant buildings.
 3. Press **R** to start recording, play for 20–30 seconds, then press **R** again.
 4. Make a captioned 1080p clip from it:
@@ -231,7 +231,8 @@ open build/PS5Stream.app --args --file samples/test-1080p.mov
 | `Renderer.swift` | Metal rendering, colour conversion, highlight boost, power modes |
 | `ArtifactCleaner.swift` | Deband and deblock pass before upscaling |
 | `NeuralUpscaler.swift`, `FSRCNNX*.swift` | FSRCNNX 2x network; the HQ path uses Metal 4 tensor ops (generated by `Tools/gen-fsrcnnx.py`) |
-| `FrameInterpolator.swift` | 60 → 120 fps with VideoToolbox frame interpolation |
+| `FrameInterpolator.swift` | 60 → 120 or 30 → 120 fps with VideoToolbox frame interpolation |
+| `FrameCadence.swift` | Detects the game's real frame rate (30 fps games arrive as repeated frames in the 60 fps stream) |
 | `SettingsPanel.swift` | On-screen settings panel |
 | `Recorder.swift` | Recording to `~/Movies` (R) |
 | `FPSOverlay.swift` | On-screen fps counter (F) |

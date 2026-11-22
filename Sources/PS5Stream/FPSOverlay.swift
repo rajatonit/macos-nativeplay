@@ -1,8 +1,8 @@
 // Live frame-rate readout drawn into the picture's top-right corner (F toggles, remembered).
 //
 // It's part of the frame itself, so it shows in full screen, in the app's recordings (R) and in phone
-// videos of the screen. With frame generation on it splits the count into frames from the PS5 and
-// generated frames, so a "120 fps" claim is never ambiguous.
+// videos of the screen. It shows the game's real frame rate and the generated frames separately from the
+// on-screen rate, so a "120 fps" claim is never ambiguous.
 
 import AppKit
 import CoreText

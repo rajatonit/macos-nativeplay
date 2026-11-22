@@ -1,10 +1,13 @@
 // Generates a 1080p60 HEVC test clip with fine detail (text, thin lines, gradients).
-// Usage: swift Tools/make-sample.swift samples/test-1080p.mov
+// Usage: swift Tools/make-sample.swift samples/test-1080p.mov [--game-fps 30]
+//   --game-fps 30 draws a new picture only every other frame, like a 30fps game in the PS5's 60fps stream.
 import AVFoundation
 import AppKit
 import CoreVideo
 
-let out = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "test-1080p.mov")
+let args = CommandLine.arguments
+let out = URL(fileURLWithPath: args.count > 1 && !args[1].hasPrefix("--") ? args[1] : "test-1080p.mov")
+let gameFPS = args.firstIndex(of: "--game-fps").flatMap { Int(args[$0 + 1]) } ?? 60
 try? FileManager.default.removeItem(at: out)
 let w = 1920, h = 1080, fps: Int32 = 60, total = 300
 
@@ -33,7 +36,8 @@ for i in 0..<total {
         data: CVPixelBufferGetBaseAddress(pb), width: w, height: h, bitsPerComponent: 8,
         bytesPerRow: CVPixelBufferGetBytesPerRow(pb), space: cs,
         bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
-    let t = CGFloat(i) / CGFloat(total)
+    let shown = i / (60 / gameFPS) * (60 / gameFPS)  // game frame on screen at stream frame i
+    let t = CGFloat(shown) / CGFloat(total)
     let grad = CGGradient(colorsSpace: cs, colors: [
         CGColor(red: 0.05, green: 0.08, blue: 0.2, alpha: 1), CGColor(red: 0.9, green: 0.45, blue: 0.1, alpha: 1),
     ] as CFArray, locations: nil)!
@@ -49,7 +53,7 @@ for i in 0..<total {
     NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
     for (row, size) in [10, 14, 20, 32].enumerated() {  // scrolling text at several sizes
         let s = NSAttributedString(
-            string: "The quick brown fox jumps over the lazy dog 0123456789 — frame \(i)",
+            string: "The quick brown fox jumps over the lazy dog 0123456789 — frame \(shown)",
             attributes: [.font: NSFont.systemFont(ofSize: CGFloat(size)), .foregroundColor: NSColor.white])
         s.draw(at: CGPoint(x: 40 + t * 300, y: CGFloat(60 + row * 50)))
     }

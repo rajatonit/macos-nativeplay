@@ -55,7 +55,8 @@ func caption(_ line: String) -> (String, Bool)? {
     var bits = ["\(power) mode", upscaler]
     if seg.contains(" clean") { bits.append("artifact clean-up") }
     if seg.contains("boost") { bits.append("HDR boost") }
-    bits.append(interp ? "\(shown) on screen (frame generation)" : "\(shown) on screen")
+    let game = find("game [0-9]+ fps").map { " from a " + $0.replacingOccurrences(of: "game ", with: "") + " game" } ?? ""
+    bits.append(interp ? "\(shown) on screen\(game) (frame generation)" : "\(shown) on screen\(game)")
     let ms = gpu.replacingOccurrences(of: "GPU ", with: "")
     // Frame generation runs in VideoToolbox, outside the render time, so report it separately.
     if let interpMs = find(#"interp [0-9.]+ ms"#)?.replacingOccurrences(of: "interp ", with: ""), !ms.isEmpty {

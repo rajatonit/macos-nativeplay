@@ -1,8 +1,12 @@
-// 60 -> 120 fps with Apple's machine-learning frame interpolation (VideoToolbox, macOS 26+).
+// Frame generation to 120 fps with Apple's machine-learning frame interpolation (VideoToolbox, macOS 26+).
 //
-// For every new frame from the PS5, the frame halfway between it and the previous one is generated and
-// shown first, so the 120 Hz panel gets a new image every refresh. The cost is latency: the real
-// frame waits for the interpolation (~9 ms) and then for half a frame period.
+// 60 fps games: for every new frame from the PS5, the frame halfway between it and the previous one
+// is generated and shown first, so the 120 Hz panel gets a new image every refresh.
+// 30 fps games (each picture sent twice in the 60 fps stream, see FrameCadence): the repeats are
+// dropped and three frames are generated between real pictures, at 1/4, 1/2 and 3/4, so motion is
+// evenly paced at 120 instead of the uneven "repeat, repeat, blend" you'd get from blending repeats.
+// The cost is latency: the real frame waits for the interpolation and is shown after its in-betweens
+// (about half a game frame, so more at 30 fps than at 60).
 //
 // The low-latency interpolator only accepts 8-bit 4:2:0. HDR frames are 10-bit, so they're reduced to
 // 8 bits with a little noise (dither) first; that turns would-be banding in the in-between frames
@@ -75,37 +79,50 @@ final class FrameInterpolator {
 
     /// Takes each decoded frame; calls `emit` with the in-between frame (when there is one) and then
     /// the frame itself. `emit` runs on the interpolator's queue.
-    func push(_ frame: CVPixelBuffer, emit: @escaping (CVPixelBuffer) -> Void) {
+    /// `repeatFrame` and `halfRate` come from FrameCadence: in a 30 fps game the repeats carry nothing
+    /// new, so they're dropped and the gap is filled with three generated frames instead.
+    func push(_ frame: CVPixelBuffer, repeatFrame: Bool = false, halfRate: Bool = false,
+              emit: @escaping (CVPixelBuffer) -> Void) {
         queue.async { [self] in
-            if #available(macOS 26.0, *), !failed, let mid = interpolate(frame) { emit(mid) }
+            if halfRate && repeatFrame { droppedRepeats += 1; return }
+            if #available(macOS 26.0, *), !failed {
+                interpolate(frame, phases: halfRate ? [0.25, 0.5, 0.75] : [0.5]).forEach(emit)
+            }
             emit(frame)
         }
     }
+    private(set) var droppedRepeats = 0
 
     /// Forget the previous frame (after a pause, a seek or switching the feature off).
     func reset() { queue.async { self.previous = nil } }
 
     @available(macOS 26.0, *)
-    private func interpolate(_ frame: CVPixelBuffer) -> CVPixelBuffer? {
+    private func interpolate(_ frame: CVPixelBuffer, phases: [Float]) -> [CVPixelBuffer] {
         let w = CVPixelBufferGetWidth(frame), h = CVPixelBufferGetHeight(frame)
         if size != (w, h) || session == nil {
-            guard start(w, h) else { failed = true; return nil }
+            guard start(w, h) else { failed = true; return [] }
         }
-        guard let processor = session as? VTFrameProcessor, let input = to8bit(frame) else { return nil }
+        guard let processor = session as? VTFrameProcessor, let input = to8bit(frame) else { return [] }
         defer { previous = input }
-        guard let prev = previous, let pool = outputPool else { return nil }
-        var out: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
-        guard let out else { return nil }
+        guard let prev = previous, let pool = outputPool else { return [] }
+        var outs: [CVPixelBuffer] = []
+        for _ in phases {
+            var out: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
+            guard let out else { return [] }
+            outs.append(out)
+        }
 
-        frameIndex += 2
-        func ts(_ v: Int64) -> CMTime { CMTime(value: v, timescale: 120) }
-        guard let prevFrame = VTFrameProcessorFrame(buffer: prev, presentationTimeStamp: ts(frameIndex - 2)),
-              let srcFrame = VTFrameProcessorFrame(buffer: input, presentationTimeStamp: ts(frameIndex)),
-              let dstFrame = VTFrameProcessorFrame(buffer: out, presentationTimeStamp: ts(frameIndex - 1)),
+        frameIndex += 4
+        func ts(_ phase: Float) -> CMTime { CMTime(value: frameIndex - 4 + Int64(phase * 4), timescale: 240) }
+        let dst = zip(outs, phases).compactMap { VTFrameProcessorFrame(buffer: $0, presentationTimeStamp: ts($1)) }
+        guard dst.count == outs.count,
+              let prevFrame = VTFrameProcessorFrame(buffer: prev, presentationTimeStamp: ts(0)),
+              let srcFrame = VTFrameProcessorFrame(buffer: input, presentationTimeStamp: ts(1)),
               let params = VTLowLatencyFrameInterpolationParameters(
-                sourceFrame: srcFrame, previousFrame: prevFrame, interpolationPhase: [0.5], destinationFrames: [dstFrame])
-        else { return nil }
+                sourceFrame: srcFrame, previousFrame: prevFrame,
+                interpolationPhase: phases, destinationFrames: dst)
+        else { return [] }
 
         let t0 = CACurrentMediaTime()
         let done = DispatchSemaphore(value: 0)
@@ -116,13 +133,15 @@ final class FrameInterpolator {
         if let error {
             print("interpolation: failed (\(error)); showing 60 fps")
             failed = true
-            return nil
+            return []
         }
-        // Same colour description as the source, so the renderer treats it as PQ/BT.2020 when HDR.
-        CVBufferPropagateAttachments(frame, out)
-        CVBufferSetAttachment(out, FrameInterpolator.generatedKey, kCFBooleanTrue, .shouldNotPropagate)
-        generated += 1
-        return out
+        for out in outs {
+            // Same colour description as the source, so the renderer treats it as PQ/BT.2020 when HDR.
+            CVBufferPropagateAttachments(frame, out)
+            CVBufferSetAttachment(out, FrameInterpolator.generatedKey, kCFBooleanTrue, .shouldNotPropagate)
+        }
+        generated += outs.count
+        return outs
     }
 
     @available(macOS 26.0, *)
@@ -131,7 +150,7 @@ final class FrameInterpolator {
         session = nil
         previous = nil
         size = (w, h)
-        guard let cfg = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: 1) else {
+        guard let cfg = VTLowLatencyFrameInterpolationConfiguration(frameWidth: w, frameHeight: h, numberOfInterpolatedFrames: 2) else {
             print("interpolation: \(w)x\(h) not supported")
             return false
         }
@@ -150,7 +169,7 @@ final class FrameInterpolator {
         inputPool = pool(cfg.sourcePixelBufferAttributes)
         outputPool = pool(cfg.destinationPixelBufferAttributes)
         session = processor
-        print("interpolation: on, \(w)x\(h) 60 -> 120 fps")
+        print("interpolation: on, \(w)x\(h), up to 3 frames between pictures")
         return inputPool != nil && outputPool != nil
     }
 

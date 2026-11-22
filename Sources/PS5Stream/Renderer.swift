@@ -137,6 +137,8 @@ final class RenderView: NSView {
     /// Interpolation actually running: wanted, and only in Max (it's the biggest GPU cost by far).
     var interpolating: Bool { interpolationWanted && power == .max }
     private var wasInterpolating = false
+    /// Detects 30 fps games inside the 60 fps stream (repeated frames).
+    let cadence = FrameCadence()
 
     // MARK: - Power
 
@@ -327,8 +329,9 @@ final class RenderView: NSView {
             wasInterpolating = on
             interpolator?.reset()  // don't blend with a frame from before the pause
         }
+        let repeatFrame = cadence.observe(pixelBuffer)
         if on, let ip = interpolator {
-            ip.push(pixelBuffer) { [weak self] in self?.enqueue($0) }
+            ip.push(pixelBuffer, repeatFrame: repeatFrame, halfRate: cadence.halfRate) { [weak self] in self?.enqueue($0) }
         } else {
             enqueue(pixelBuffer)
         }
@@ -337,8 +340,9 @@ final class RenderView: NSView {
     private func enqueue(_ pixelBuffer: CVPixelBuffer) {
         lock.lock()
         pending.append(pixelBuffer)
-        // Interpolation delivers frames in pairs (in-between + real), so allow room for a Wi-Fi burst of two pairs.
-        if pending.count > maxQueued + (interpolating ? 2 : 0) {
+        // Interpolation delivers frames in groups (1 or 3 in-betweens + the real one); leave room for one
+        // group on top of a Wi-Fi burst.
+        if pending.count > maxQueued + (interpolating ? 4 : 0) {
             pending.removeFirst()
             dropped += 1
         }
@@ -603,7 +607,8 @@ final class RenderView: NSView {
             onSettingsChanged?()
         }
         let netName = upscale == .neuralHQ && p >= .balanced ? (interpolating ? "Neural HQ + fast in-between" : "Neural HQ") : "Neural fast"
-        let mode = p.name + " | " + (interpolating ? String(format: "120 fps (interp %.1f ms) ", interpolator?.lastMs ?? 0) : "")
+        let mode = p.name + " | " + (interpolating ? String(format: "120 fps (%@ interp %.1f ms) ",
+                                                            cadence.halfRate ? "30->120," : "60->120,", interpolator?.lastMs ?? 0) : "")
             + (neural ? netName : fx != nil ? "MetalFX" : scaler == nil && useMetalFX ? "Lanczos" : "bilinear") + (info.hdr ? " HDR" : " SDR") + (cleaning ? " clean" : "")
             + (boosting ? String(format: " boost %.0f->%.0f nits", srcPeak, boostTarget) : "")
             + (compare ? " | compare" : "") + (isRecording ? " | REC" : "") + (showFPS ? " | fps overlay" : "")
@@ -631,19 +636,22 @@ final class RenderView: NSView {
         received = 0
         dropped = 0
         lock.unlock()
+        let gameRateNote = cadence.gameFPS > 0 ? " game \(cadence.gameFPS) fps," : ""
         var line = clock + " " + String(
-            format: "%@ | %dx%d -> %dx%d | in %.0f fps, shown %.0f fps, skipped %d | GPU %.2f ms",
+            format: "%@ | %dx%d -> %dx%d |\(gameRateNote) in %.0f fps, shown %.0f fps, skipped %d | GPU %.2f ms",
             mode, src.0, src.1, out.0, out.1,
             Double(got) / dt, Double(presented) / dt, skipped, gpuMsSum / Double(presented))
         if let extra = extraStats?(), !extra.isEmpty { line += " | " + extra }
         window?.title = line
-        // Overlay: frames actually shown, split into PS5 and generated frames when interpolating.
+        // Overlay: frames on screen, the game's own frame rate (new pictures from the PS5, not counting
+        // repeats in its 60 fps stream) and how many frames were generated, as separate facts.
         let shown = Int((Double(presented) / dt).rounded())
         let gen = (interpolator?.generated ?? 0)
         let genPerSec = Int((Double(gen - lastGenerated) / dt).rounded())
         lastGenerated = gen
-        var hud = "\(shown) fps"
-        if interpolating && genPerSec > 0 { hud += "  ·  \(max(shown - genPerSec, 0)) PS5 + \(genPerSec) generated" }
+        var hud = "\(shown) fps on screen"
+        if cadence.gameFPS > 0 { hud += "  ·  game \(cadence.gameFPS) fps" }
+        if interpolating && genPerSec > 0 { hud += "  ·  \(genPerSec) generated" }
         hud += String(format: "  ·  %@  ·  %.1f ms GPU", scaler, gpuMsSum / Double(presented))
         // Frame generation runs in VideoToolbox, outside the render time above.
         if interpolating, let ip = interpolator { hud += String(format: " + %.1f ms frame gen", ip.lastMs) }
