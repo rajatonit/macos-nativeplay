@@ -119,10 +119,10 @@ final class RenderView: NSView {
 
     /// How hard the GPU works (E cycles, remembered). The Mac also steps down on its own when macOS
     /// reports it's getting hot, and goes to Cool in Low Power Mode.
-    /// Measured on the M5 Pro with a 1080p60 clip:
-    ///   Max:      120 fps interpolation + Neural HQ on real frames (~65% GPU; interpolation is ~45 of it)
-    ///   Balanced: Neural HQ, 60 fps (~50% GPU)
-    ///   Cool:     Neural fast, 60 fps (~20% GPU)
+    /// GPU work per frame on the M5 Pro at full clock (busy % is misleading: the GPU clocks down):
+    ///   Max:      120 fps interpolation + Neural HQ on real frames; interpolation (~9 ms a frame) dominates
+    ///   Balanced: Neural HQ, 60 fps (~5.5 ms per frame)
+    ///   Cool:     Neural fast, 60 fps (~3 ms per frame)
     enum Power: Int, CaseIterable, Comparable {
         case cool, balanced, max
         static func < (a: Power, b: Power) -> Bool { a.rawValue < b.rawValue }

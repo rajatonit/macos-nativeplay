@@ -40,7 +40,7 @@ Keys:
 
 - `U` cycles the upscaler: Neural HQ (default), Neural fast, MetalFX, bilinear. The neural modes run the FSRCNNX network from chiaki-ng on the GPU.
 - The mouse pointer is hidden over the video in full screen.
-- `E` cycles the power mode: Max (120 fps + Neural HQ, ~65% GPU), Balanced (Neural HQ at 60 fps, ~50%, default), Cool (Neural fast at 60 fps, ~20%). Remembered. The app steps down by itself when macOS reports the Mac is hot, and uses Cool in Low Power Mode.
+- `E` cycles the power mode: Max (120 fps + Neural HQ; frame interpolation is the biggest cost), Balanced (Neural HQ at 60 fps, ~5.5 ms of GPU work per frame, default), Cool (Neural fast at 60 fps, ~3 ms). Remembered. The app steps down by itself when macOS reports the Mac is hot, and uses Cool in Low Power Mode.
 - `I` toggles 120 fps (only used in Max): Apple's machine-learning frame interpolation adds a generated frame between each pair from the PS5 (macOS 26+, on by default, remembered). It adds roughly one frame of input lag. With Neural HQ, real PS5 frames still get HQ and the generated in-between frames get Neural fast.
 - `H` toggles the HDR highlight boost (stretches highlights above 200 nits up to 1000).
 - `M` toggles the microphone.
