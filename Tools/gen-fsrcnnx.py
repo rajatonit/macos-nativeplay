@@ -91,30 +91,46 @@ for li, (key, ps) in enumerate(layers):
         f"    int2 p = int2(gid), m = int2(o0.get_width() - 1, o0.get_height() - 1);\n"
         + "\n".join(loads) + "\n" + "\n".join(blocks) + "\n}\n"))
 
-# Weights of the 3x3 "mapping" layers as plain conv tensors, for the matrix-unit path
-# (NeuralUpscaler.swift): weights[tap][in][out] with tap = (dy+1)*3 + (dx+1), plus bias and PReLU slope.
-mapping = []
+# Every layer's weights as a plain convolution, for the buffer + matrix-unit path in
+# NeuralUpscaler.swift: weights[tap][in][out] with tap = (dy+r)*k + (dx+r) for a k x k kernel (r = k/2),
+# bias[out], PReLU slope[out] (empty when the layer has no activation), and whether the layer adds the
+# feature map (the network's skip connection) before its activation.
+convs = []
+term_re = re.compile(r"(?:mat4(?:x4)?\(([^()]*)\)|vec4\(([^()]*)\)) \* (?:float\()?([A-Z0-9]+)_texOff\((?:vec2\((-?\d+),\s*(-?\d+)\)|0)\)")
 for key, ps in layers:
-    if not key.startswith("mapping"): continue
-    ins = []
-    for p in ps:
-        for b in p["binds"]:
-            if b not in ins: ins.append(b)
-    C = 4 * len(ins)
-    if C != 4 * len(ps): continue
-    W = [0.0] * (9 * C * C); bias = []; alpha = []
+    terms, ins = [], []
+    for k, p in enumerate(ps):
+        for m in term_re.finditer(p["body"]):
+            name = m.group(3)
+            dx, dy = int(m.group(4) or 0), int(m.group(5) or 0)
+            nums = [float(x) for x in (m.group(1) or m.group(2)).split(",")]
+            terms.append((k, name, dx, dy, nums))
+            if name not in ins: ins.append(name)
+    r = max(max(abs(t[2]), abs(t[3])) for t in terms)
+    ks = 2 * r + 1
+    cin = 1 if ins == ["LUMA"] else 4 * len(ins)
+    cout = 4 * len(ps)
+    W = [0.0] * (ks * ks * cin * cout); bias = []; alpha = []; residual = False
     for k, p in enumerate(ps):
         body = p["body"]
         bias += [float(x) for x in re.search(r"res = vec4\(([^)]*)\)", body).group(1).split(",")]
-        alpha += [float(x) for x in re.search(r"max\(res, vec4\(0\.0\)\) \+ vec4\(([^)]*)\)", body).group(1).split(",")]
-        for m in re.finditer(r"mat4(?:x4)?\(([^()]*)\) \* ([A-Z0-9]+)_texOff\(vec2\((-?\d+),\s*(-?\d+)\)\)", body):
-            nums = [float(x) for x in m.group(1).split(",")]
-            j = ins.index(m.group(2)); dx, dy = int(m.group(3)), int(m.group(4))
-            t = (dy + 1) * 3 + (dx + 1)
+        a = re.search(r"max\(res, vec4\(0\.0\)\) \+ vec4\(([^)]*)\)", body)
+        if a: alpha += [float(x) for x in a.group(1).split(",")]
+        res = re.search(r"res \+= ([A-Z0-9]+)_texOff\(0\);", body)
+        if res:
+            assert res.group(1) == f"FEATURE{k + 1}", "skip connection must add the matching feature channels"
+            residual = True
+    for k, name, dx, dy, nums in terms:
+        t = (dy + r) * ks + (dx + r)
+        if cin == 1:
+            for o in range(4): W[(t * cin) * cout + 4 * k + o] = nums[o]
+        else:
+            j = ins.index(name)
             for c in range(4):
-                for r in range(4):
-                    W[(t * C + 4 * j + c) * C + 4 * k + r] = nums[c * 4 + r]
-    mapping.append((ins, [p["save"] for p in ps], W, bias, alpha))
+                for o in range(4):
+                    W[(t * cin + 4 * j + c) * cout + 4 * k + o] = nums[c * 4 + o]
+    convs.append(dict(kernel=ks, inputs=ins, outputs=[p["save"] for p in ps], cin=cin, cout=cout,
+                      W=W, bias=bias, alpha=alpha, residual=residual, key=key))
 
 last = agg[0]["binds"][0]
 agg_kernel = f"""kernel void {P}aggregate(
@@ -134,11 +150,11 @@ print("\n".join(header.splitlines()))
 print()
 print("/// One entry per fused layer: kernel name, input texture names, output texture names.")
 def floats(v): return "[" + ", ".join(repr(float(x)) for x in v) + "]"
-print(f"let fsrcnnx{NAME} = FSRCNNXNetwork(aggregate: \"{P}aggregate\", mapping: [")
-for ins, outs, W, b, a in mapping:
-    print(f"    FSRCNNXConv3x3(inputs: {ins!r}, outputs: {outs!r},".replace("'", '"'))
-    print(f"                   weights: {floats(W)} as [Float],")
-    print(f"                   bias: {floats(b)} as [Float], alpha: {floats(a)} as [Float]),")
+print(f"let fsrcnnx{NAME} = FSRCNNXNetwork(aggregate: \"{P}aggregate\", convs: [")
+for c in convs:
+    print(f"    FSRCNNXConv(kernel: {c['kernel']}, inChannels: {c['cin']}, outChannels: {c['cout']}, residual: {'true' if c['residual'] else 'false'},  // {c['key']}")
+    print(f"                weights: {floats(c['W'])} as [Float],")
+    print(f"                bias: {floats(c['bias'])} as [Float], alpha: {floats(c['alpha'])} as [Float]),")
 print("], layers: [")
 for name, ins, outs, key, _ in kernels:
     print(f'    ("{name}", {ins!r}, {outs!r}),  // {key}'.replace("'", '"'))

@@ -77,7 +77,7 @@ final class RenderView: NSView {
     private var useMetalFX: Bool { upscale != .bilinear }
     private lazy var neuralHQ = NeuralUpscaler(device: device, network: fsrcnnxHQ)
     private lazy var neuralFast = NeuralUpscaler(device: device, network: fsrcnnxFast)
-    private var rgb2xTexture: MTLTexture?
+    private var lumaOutTexture: MTLTexture?  // neural 2x luma, resized to the window
     /// Stretch HDR highlights to the panel's sustained 1000 nits (H toggles).
     private(set) var highlightBoost = true
     /// Brightest the source has been recently (nits), from the decoder. The curve maps this to 1000.
@@ -409,16 +409,27 @@ final class RenderView: NSView {
             return
         }
 
-        // Neural path: FSRCNNX doubles the luma, the colour conversion runs at 2x, then Lanczos fits
-        // it to the window. Only used when the window is bigger than the source.
+        // Neural path: FSRCNNX doubles the luma, Lanczos fits that single channel to the window, then the
+        // colour conversion (and highlight boost) runs once, straight into the output at window size.
+        // Only used when the window is bigger than the source.
         var lumaIn = luma, target = rgb, neural = false
         // HQ (~6 ms) can't run 120 times a second: with interpolation on, real PS5 frames get HQ and
         // the generated in-between frames get the fast network.
         let useHQ = upscale == .neuralHQ && power >= .balanced && !(interpolating && FrameInterpolator.isGenerated(pb))
         let net = useHQ ? neuralHQ : upscale == .neuralHQ || upscale == .neuralFast ? neuralFast : nil
         if let net, outW > srcW, let luma2x = net.encode(cb, luma: luma) {
-            if rgb2xTexture?.width != srcW * 2 || rgb2xTexture?.height != srcH * 2 { rgb2xTexture = makeTexture(srcW * 2, srcH * 2) }
-            if let t = rgb2xTexture { lumaIn = luma2x; target = t; neural = true }
+            if lumaOutTexture?.width != outW || lumaOutTexture?.height != outH {
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r16Float, width: outW, height: outH, mipmapped: false)
+                d.usage = [.shaderRead, .shaderWrite]
+                d.storageMode = .private
+                lumaOutTexture = device.makeTexture(descriptor: d)
+            }
+            if let lumaOut = lumaOutTexture {
+                // 2x is 3840 wide; windows narrower than that get Lanczos, wider ones bilinear.
+                if outW <= luma2x.width { lanczos.encode(commandBuffer: cb, sourceTexture: luma2x, destinationTexture: lumaOut) }
+                else { bilinear.encode(commandBuffer: cb, sourceTexture: luma2x, destinationTexture: lumaOut) }
+                lumaIn = lumaOut; target = out; neural = true
+            }
         }
 
         let pass = MTLRenderPassDescriptor()
@@ -440,9 +451,7 @@ final class RenderView: NSView {
 
         let fx = useMetalFX && !neural ? scaler : nil
         if neural {
-            // 2x is 3840 wide; the window is smaller, so this is a downscale. Larger windows use bilinear.
-            if outW <= target.width { lanczos.encode(commandBuffer: cb, sourceTexture: target, destinationTexture: out) }
-            else { bilinear.encode(commandBuffer: cb, sourceTexture: target, destinationTexture: out) }
+            // already rendered into `out`
         } else if let fx {
             fx.colorTexture = rgb
             fx.outputTexture = out
